@@ -1,0 +1,15 @@
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.env
+data/wallet.json
+data/*.local.json
+*.log
+.DS_Store
+ml/**/__pycache__/
+ml/**/*.pyc
+.venv/
+venv/
+tmp/
+.cursor/
+session-ses_*.md

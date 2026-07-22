@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#06b6d4"/>
+      <stop offset="100%" style="stop-color:#0891b2"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" style="stop-color:#e38dfb44"/>
+      <stop offset="100%" style="stop-color:#0891b200"/>
+    </radialGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="#00000055"/>
+    </filter>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="url(#bg)"/>
+  <circle cx="128" cy="128" r="120" fill="url(#glow)"/>
+  <circle cx="128" cy="128" r="72" fill="none" stroke="#e38dfb44" stroke-width="1"/>
+  <text x="128" y="152" font-family="system-ui,-apple-system,sans-serif" font-size="96" font-weight="700" fill="white" text-anchor="middle" filter="url(#shadow)">F</text>
+  <rect x="78" y="190" width="100" height="2" rx="1" fill="#e38dfb88"/>
+</svg>

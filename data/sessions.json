@@ -1,0 +1,55 @@
+[
+  {
+    "symbol": "TEST",
+    "feeTier": 5,
+    "marketCap": 3000,
+    "tokenAddress": "0x1234567890abcdef1234567890abcdef12345678",
+    "timestamp": "2026-07-20T23:30:00.000Z"
+  },
+  {
+    "id": "mrtxtyqa",
+    "type": "launch",
+    "name": "Pawsome Trader",
+    "symbol": "PAWS",
+    "description": "A community-driven token for Robinhood traders",
+    "totalSupply": 1000000000,
+    "marketCap": 0,
+    "feeTier": 1,
+    "initialBuyAmount": 0.0004,
+    "tokenAddress": "0x5101d59e848e4457ffa151b49c21603c84748669",
+    "txHash": "0x2818a88ef74abaa49c8781da4cbaa6e92240879b0b0af8d034a9307fe387c147",
+    "raw": "{\"name\":\"Pawsome Trader\",\"symbol\":\"PAWS\",\"description\":\"A community-driven token for Robinhood traders\",\"totalSupply\":1000000000,\"tokenAddress\":null,\"pool\":null,\"txHash\":\"0x2818a88ef74abaa49c8781da4cbaa6e92240879b0b0af8d034a9307fe387c147\",\"initialBuyAmount\":0,\"initialBuyWei\":\"0\",\"fee\":0.0005,\"valueSent\":0.0009,\"balanceAfter\":0.001288767091088,\"success\":false}",
+    "feeBreakdown": {
+      "launchFee": 0.0005,
+      "buyAmount": 0
+    },
+    "wallet": "0x4dCAe3674B59a16e5A85DaA5BBccF1606d138450",
+    "feesCollected": 0,
+    "currentValue": 0,
+    "timestamp": "2026-07-21T00:51:17.650Z",
+    "logoUrl": "https://zinger.kierkegaard.space/assets/tokens/PAWS.svg"
+  },
+  {
+    "id": "mru06tkr",
+    "type": "launch",
+    "name": "Fattest Nigga on HOOD",
+    "symbol": "FNH",
+    "description": "For only fat niggas",
+    "totalSupply": 1000000000,
+    "marketCap": 0,
+    "feeTier": 1,
+    "initialBuyAmount": 0,
+    "tokenAddress": null,
+    "txHash": "0x9775e268523a7a548fe86139c615fae3effb228f9c225b822d7df80fbe1105b2",
+    "logoUrl": "https://zinger.kierkegaard.space/assets/tokens/FNH.svg",
+    "raw": "{\"name\":\"Fattest Nigga on HOOD\",\"symbol\":\"FNH\",\"description\":\"For only fat niggas\",\"totalSupply\":1000000000,\"tokenAddress\":null,\"pool\":null,\"txHash\":\"0x9775e268523a7a548fe86139c615fae3effb228f9c225b822d7df80fbe1105b2\",\"initialBuyAmount\":0,\"initialBuyWei\":\"0\",\"fee\":0.0005,\"valueSent\":0.00051,\"balanceAfter\":0.000226071004118,\"success\":false}",
+    "feeBreakdown": {
+      "launchFee": 0.0005,
+      "buyAmount": 0
+    },
+    "wallet": "0x4dCAe3674B59a16e5A85DaA5BBccF1606d138450",
+    "feesCollected": 0,
+    "currentValue": 0,
+    "timestamp": "2026-07-21T01:57:16.731Z"
+  }
+]

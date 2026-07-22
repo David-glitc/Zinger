@@ -1,0 +1,183 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* NASA / launch-terminal: deep slate, lime live, mono data */
+:root {
+  --radius: 0.35rem;
+  --background: oklch(0.985 0.004 250);
+  --foreground: oklch(0.2 0.02 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.02 255);
+  --primary: oklch(0.72 0.19 130);
+  --primary-foreground: oklch(0.18 0.04 130);
+  --secondary: oklch(0.94 0.01 250);
+  --secondary-foreground: oklch(0.3 0.02 255);
+  --muted: oklch(0.94 0.008 250);
+  --muted-foreground: oklch(0.5 0.02 255);
+  --accent: oklch(0.94 0.01 250);
+  --accent-foreground: oklch(0.3 0.02 255);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.88 0.01 250);
+  --input: oklch(0.88 0.01 250);
+  --ring: oklch(0.72 0.19 130);
+  --chart-1: oklch(0.72 0.19 130);
+  --chart-2: oklch(0.65 0.12 75);
+  --chart-3: oklch(0.55 0.16 25);
+  --chart-4: oklch(0.58 0.1 250);
+  --chart-5: oklch(0.7 0.08 200);
+  --sidebar: oklch(0.97 0.006 250);
+  --sidebar-foreground: oklch(0.28 0.02 255);
+  --sidebar-primary: oklch(0.72 0.19 130);
+  --sidebar-primary-foreground: oklch(0.18 0.04 130);
+  --sidebar-accent: oklch(0.94 0.01 250);
+  --sidebar-accent-foreground: oklch(0.28 0.02 255);
+  --sidebar-border: oklch(0.88 0.01 250);
+  --sidebar-ring: oklch(0.72 0.19 130);
+}
+
+.dark {
+  --background: oklch(0.13 0.015 255);
+  --foreground: oklch(0.94 0.01 140);
+  --card: oklch(0.17 0.016 255);
+  --card-foreground: oklch(0.94 0.01 140);
+  --popover: oklch(0.17 0.016 255);
+  --popover-foreground: oklch(0.94 0.01 140);
+  --primary: oklch(0.84 0.2 130);
+  --primary-foreground: oklch(0.16 0.04 130);
+  --secondary: oklch(0.22 0.015 255);
+  --secondary-foreground: oklch(0.9 0.01 140);
+  --muted: oklch(0.2 0.014 255);
+  --muted-foreground: oklch(0.66 0.02 200);
+  --accent: oklch(0.22 0.02 255);
+  --accent-foreground: oklch(0.94 0.01 140);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.28 0.015 255);
+  --input: oklch(0.28 0.015 255);
+  --ring: oklch(0.84 0.2 130);
+  --chart-1: oklch(0.84 0.2 130);
+  --chart-2: oklch(0.78 0.12 85);
+  --chart-3: oklch(0.65 0.18 25);
+  --chart-4: oklch(0.7 0.1 250);
+  --chart-5: oklch(0.75 0.08 200);
+  --sidebar: oklch(0.11 0.014 255);
+  --sidebar-foreground: oklch(0.9 0.01 140);
+  --sidebar-primary: oklch(0.84 0.2 130);
+  --sidebar-primary-foreground: oklch(0.16 0.04 130);
+  --sidebar-accent: oklch(0.19 0.015 255);
+  --sidebar-accent-foreground: oklch(0.94 0.01 140);
+  --sidebar-border: oklch(0.26 0.014 255);
+  --sidebar-ring: oklch(0.84 0.2 130);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+.poly-shell {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(ellipse 70% 40% at 0% 0%, color-mix(in oklab, var(--primary) 10%, transparent), transparent),
+    radial-gradient(ellipse 50% 30% at 100% 0%, color-mix(in oklab, oklch(0.55 0.12 250) 8%, transparent), transparent),
+    linear-gradient(to bottom, color-mix(in oklab, var(--card) 50%, transparent), transparent 32%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      color-mix(in oklab, var(--foreground) 2.5%, transparent) 2px,
+      color-mix(in oklab, var(--foreground) 2.5%, transparent) 3px
+    );
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dense NASA data tiles */
+.poly-shell .data-tile {
+  @apply rounded-md border border-border/70 bg-card/90 px-2 py-1.5 font-mono;
+}
+.poly-shell .data-tile .lbl {
+  @apply text-[0.55rem] uppercase tracking-[0.12em] text-muted-foreground;
+}
+.poly-shell .data-tile .val {
+  @apply text-sm font-semibold tabular-nums text-foreground;
+}
+
+/* Terminal mode switch — touch-first, shrinks on desktop */
+.mode-rail {
+  @apply inline-flex overflow-hidden rounded-md border border-border/80 bg-muted/40 p-0.5;
+}
+.mode-rail button {
+  @apply h-11 min-w-[3.75rem] px-2.5 font-mono text-[0.65rem] font-semibold uppercase tracking-wider transition-colors sm:h-8 sm:min-w-[4.5rem] sm:px-3;
+}
+.mode-rail button[data-active="true"][data-mode="live"] {
+  @apply bg-primary text-primary-foreground shadow-sm;
+}
+.mode-rail button[data-active="true"][data-mode="paper"] {
+  @apply bg-secondary text-secondary-foreground;
+}
+.mode-rail button[data-active="false"] {
+  @apply text-muted-foreground hover:text-foreground;
+}
+.mode-rail button:disabled {
+  @apply opacity-50;
+}
+
+.poly-mobile-pad {
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 1024px) {
+  .poly-mobile-pad {
+    padding-bottom: 1rem;
+  }
+}
