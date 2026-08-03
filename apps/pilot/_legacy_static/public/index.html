@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Zinger Pilot — your wallet, Zinger signals</title>
+<meta name="description" content="Connect wallet, fund your Polymarket account, set hard rules, and let Zinger BTC/ETH 5m signals trade only the bankroll you make available." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#07070a;
+  --bg-elev:#0e0e12;
+  --fg:#f2f3f7;
+  --muted:#8b90a0;
+  --line:#1c1c24;
+  --brand:#2E6CFF;
+  --brand-2:#5b8cff;
+  --brand-soft:rgba(46,108,255,.12);
+  --up:#2fe09a;
+  --dn:#ff5c7a;
+  --warn:#ffb020;
+  --pink:#ff2d6a;
+  --display:'Syne',system-ui,sans-serif;
+  --sans:'Manrope',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:var(--sans);min-height:100%}
+body{
+  background:
+    radial-gradient(900px 480px at 12% -10%, rgba(46,108,255,.22), transparent 55%),
+    radial-gradient(700px 420px at 88% 0%, rgba(255,45,106,.10), transparent 50%),
+    linear-gradient(180deg, #0a0a0e 0%, #07070a 42%, #050507 100%);
+}
+a{color:var(--brand-2);text-decoration:none}
+a:hover{text-decoration:underline}
+.shell{max-width:1120px;margin:0 auto;padding:1rem 1.15rem 3rem}
+
+/* Top bar — Rainmaker: logo left, product right, connect */
+.top{
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;
+  padding:.35rem 0 1.1rem;border-bottom:1px solid transparent;
+}
+.brand{font-family:var(--display);font-weight:800;letter-spacing:-.04em;font-size:1.2rem}
+.brand span{color:var(--brand);margin-left:.3rem;font-weight:700}
+.top-right{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap}
+.nav-link{
+  font-size:.72rem;font-weight:600;color:var(--muted);letter-spacing:.02em;
+  padding:.35rem .55rem;
+}
+.nav-link:hover{color:var(--fg);text-decoration:none}
+.status-pill{
+  display:inline-flex;align-items:center;gap:.35rem;
+  padding:.28rem .55rem;border:1px solid var(--line);border-radius:999px;
+  font-family:var(--mono);font-size:.65rem;color:var(--muted);
+}
+.status-pill.on{border-color:rgba(47,224,154,.4);color:var(--up)}
+
+/* Mode rail — same pattern as core PolyDashboard */
+.mode-rail{
+  display:inline-flex;min-height:2.15rem;overflow:hidden;
+  border:1px solid rgba(255,255,255,.14);background:#000;padding:3px;border-radius:4px;
+}
+.mode-rail button{
+  appearance:none;border:0;background:transparent;cursor:pointer;
+  min-width:4.4rem;height:1.85rem;padding:0 .85rem;
+  font-family:var(--mono);font-size:.62rem;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+}
+.mode-rail button[data-active="true"][data-mode="paper"]{background:rgba(255,255,255,.1);color:#f4f4f5}
+.mode-rail button[data-active="true"][data-mode="live"]{background:var(--brand);color:#fff}
+.mode-rail button[data-active="false"]:hover{color:#e4e4e7}
+.mode-rail button:disabled{opacity:.4;cursor:not-allowed}
+
+/* Hero — one composition: brand, headline, lede, CTA, mode */
+.hero{
+  min-height:min(72vh,640px);
+  display:grid;align-content:center;
+  padding:2.4rem 0 1.6rem;
+  border-bottom:1px solid var(--line);
+}
+.hero-kicker{
+  font-family:var(--mono);font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--brand-2);margin:0 0 .85rem;
+}
+.hero h1{
+  font-family:var(--display);font-weight:800;letter-spacing:-.05em;
+  font-size:clamp(2.4rem,6.5vw,4.4rem);line-height:.98;margin:0 0 .85rem;max-width:14ch;
+}
+.hero h1 em{font-style:normal;color:var(--brand)}
+.hero-lede{
+  color:var(--muted);font-size:1.02rem;line-height:1.5;max-width:34rem;margin:0 0 1.35rem;
+}
+.hero-cta{display:flex;flex-wrap:wrap;gap:.65rem;align-items:center;margin-bottom:1.1rem}
+button.primary,button.ghost,button.danger{
+  appearance:none;border-radius:6px;cursor:pointer;
+  font-family:var(--sans);font-weight:700;font-size:.88rem;
+  padding:.78rem 1.15rem;border:1px solid transparent;
+}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+button.primary:hover{background:var(--brand-2)}
+button.ghost{background:transparent;border-color:var(--line);color:var(--fg)}
+button.ghost:hover{border-color:rgba(255,255,255,.28)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.hero-meta{
+  display:flex;flex-wrap:wrap;gap:.55rem .95rem;
+  font-family:var(--mono);font-size:.68rem;color:var(--muted);
+}
+
+/* Funnel strip */
+.funnel{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:.55rem;
+  padding:1.35rem 0 1.5rem;border-bottom:1px solid var(--line);
+}
+@media(max-width:820px){.funnel{grid-template-columns:1fr 1fr}}
+.funnel-step{padding:.55rem .15rem}
+.funnel-step .n{font-family:var(--mono);font-size:.62rem;color:var(--brand);letter-spacing:.08em;margin-bottom:.3rem}
+.funnel-step .t{font-family:var(--display);font-weight:700;font-size:.95rem;letter-spacing:-.02em}
+.funnel-step .d{font-size:.75rem;color:var(--muted);margin-top:.25rem;line-height:1.35}
+.funnel-step.on .t{color:var(--up)}
+
+/* Main board */
+.board{display:grid;grid-template-columns:1.05fr .95fr;gap:1.25rem;padding:1.4rem 0}
+@media(max-width:900px){.board{grid-template-columns:1fr}}
+.panel{padding:0}
+.panel-h{
+  display:flex;justify-content:space-between;align-items:baseline;gap:.75rem;
+  padding:0 0 .7rem;margin-bottom:.85rem;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:.55rem;margin-bottom:1rem}
+.kpi{padding:.7rem .75rem;border:1px solid var(--line);background:var(--bg-elev);border-radius:8px}
+.kpi .l{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.kpi .v{font-family:var(--mono);font-size:1.2rem;font-weight:600;margin-top:.2rem}
+.kpi .s{font-family:var(--mono);font-size:.66rem;color:var(--muted);margin-top:.15rem}
+.addr{
+  font-family:var(--mono);font-size:.82rem;color:var(--brand-2);
+  word-break:break-all;margin:.2rem 0 .85rem;
+}
+.amt{
+  width:6.8rem;background:#000;border:1px solid var(--line);color:var(--fg);
+  border-radius:6px;padding:.65rem .7rem;font-family:var(--mono);font-size:.82rem;
+}
+.actions{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center;margin:.85rem 0}
+.mute{color:var(--muted)}
+.mono{font-family:var(--mono)}
+.up{color:var(--up)} .dn{color:var(--dn)}
+
+.rules label{display:block;font-size:.7rem;color:var(--muted);margin:.45rem 0 .2rem}
+.rules input,.rules select{
+  width:100%;background:#000;border:1px solid var(--line);color:var(--fg);
+  border-radius:6px;padding:.55rem .65rem;font-family:var(--mono);font-size:.8rem;
+}
+.rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+
+.row{
+  display:grid;grid-template-columns:72px 1fr auto;gap:.5rem;align-items:baseline;
+  padding:.42rem 0;border-bottom:1px solid #14141a;font-size:.78rem;
+}
+.row .t{font-family:var(--mono);color:var(--muted);font-size:.66rem}
+
+.mode-note{
+  margin-top:.85rem;padding:.7rem .8rem;border-left:2px solid var(--brand);
+  background:var(--brand-soft);font-size:.8rem;color:var(--muted);line-height:1.45;
+}
+.mode-note strong{color:var(--fg)}
+.mode-note[data-mode="live"]{border-left-color:var(--pink);background:rgba(255,45,106,.08)}
+
+.footer{
+  margin-top:1.75rem;padding-top:1rem;border-top:1px solid var(--line);
+  display:flex;justify-content:space-between;gap:.75rem;flex-wrap:wrap;
+  color:var(--muted);font-size:.72rem;
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">ZINGER<span>Pilot</span></div>
+    <div class="top-right">
+      <a class="nav-link" href="https://play.zinger.kierkegaard.space">Playground</a>
+      <a class="nav-link" href="https://zinger.kierkegaard.space">Experiment</a>
+      <div class="mode-rail" role="group" aria-label="Trading mode" id="mode-rail">
+        <button type="button" data-mode="paper" data-active="true" id="mode-paper">Paper</button>
+        <button type="button" data-mode="live" data-active="false" id="mode-live">Live</button>
+      </div>
+      <button type="button" class="primary" id="btn-connect" style="padding:.55rem .9rem;font-size:.78rem">Connect</button>
+      <div class="status-pill" id="api-pill">API …</div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <p class="hero-kicker" id="mode-kicker">Paper mode · prove the book</p>
+    <h1>Your wallet.<br><em>Zinger</em> signals.</h1>
+    <p class="hero-lede">
+      Rainmaker-class managed UX without a token gate. Connect, fund, set hard caps —
+      Zinger BTC/ETH 5m signals trade only the bankroll you make available.
+    </p>
+    <div class="hero-cta">
+      <button type="button" class="primary" id="btn-deposit">Deposit</button>
+      <input class="amt" id="deposit-amt" type="number" min="100" max="10000" step="50" value="1000" aria-label="Deposit amount" />
+      <button type="button" class="ghost" id="btn-withdraw" disabled>Withdraw</button>
+      <input class="amt" id="withdraw-amt" type="number" min="0" max="10000" step="50" value="0" aria-label="Withdraw amount" />
+      <button type="button" class="ghost" id="btn-save-rules">Save rules</button>
+    </div>
+    <div class="hero-meta">
+      <span id="status-line">Armed — connect to personalize</span>
+      <span>Max 10% cash / ticket</span>
+      <span>Entry 0.42–0.68</span>
+      <span id="fee-line">Fees = live CLOB fd.r/e</span>
+    </div>
+  </section>
+
+  <div class="funnel" aria-label="How Pilot works">
+    <div class="funnel-step" id="step-1"><div class="n">01</div><div class="t">Connect wallet</div><div class="d">Polygon wallet you control</div></div>
+    <div class="funnel-step" id="step-2"><div class="n">02</div><div class="t">Fund bankroll</div><div class="d">Paper now · Polymarket live next</div></div>
+    <div class="funnel-step" id="step-3"><div class="n">03</div><div class="t">Set hard rules</div><div class="d">Size, entry band, confidence</div></div>
+    <div class="funnel-step" id="step-4"><div class="n">04</div><div class="t">Signals trade</div><div class="d">Only inside your caps</div></div>
+  </div>
+
+  <section class="board">
+    <div class="panel">
+      <div class="panel-h"><span>Bankroll · performance</span><span id="bot-line" class="mute">signals …</span></div>
+      <div class="kpis" aria-label="Pilot book">
+        <div class="kpi"><div class="l">Equity</div><div class="v" id="eq">$1,000</div><div class="s" id="eq-sub">vs $1,000</div></div>
+        <div class="kpi"><div class="l">Cash</div><div class="v" id="cash">$1,000</div><div class="s" id="fees">fees $0</div></div>
+        <div class="kpi"><div class="l">Realized</div><div class="v" id="realized">$0</div><div class="s" id="wr">WR —</div></div>
+        <div class="kpi"><div class="l">Open</div><div class="v" id="open-n">0</div><div class="s" id="mode-chip">PAPER</div></div>
+      </div>
+      <div class="panel-h"><span>Wallet · Polygon</span></div>
+      <div class="addr" id="addr">Not connected</div>
+      <div class="mono" id="bankroll-line" style="font-size:.85rem;margin-bottom:.85rem">$1,000 available</div>
+      <div class="mono mute" id="signal-source" style="font-size:.72rem">resolving…</div>
+      <div class="mode-note" id="mode-note" data-mode="paper">
+        <strong>Paper</strong> — same signal stack and CLOB fee schedule as live orders.
+        Live unlocks when your rules + wallet custody path are ready; toggle stays visible either way.
+      </div>
+    </div>
+
+    <div class="panel rules">
+      <div class="panel-h"><span>Account rules</span><span class="mute">hard caps</span></div>
+      <div class="rule-grid">
+        <div>
+          <label for="rule-maxpct">Max position % of cash</label>
+          <input id="rule-maxpct" type="number" min="1" max="25" step="1" value="10" />
+        </div>
+        <div>
+          <label for="rule-minconf">Min confidence</label>
+          <input id="rule-minconf" type="number" min="0.2" max="0.9" step="0.01" value="0.38" />
+        </div>
+        <div>
+          <label for="rule-minpx">Min entry</label>
+          <input id="rule-minpx" type="number" min="0.2" max="0.8" step="0.01" value="0.42" />
+        </div>
+        <div>
+          <label for="rule-maxpx">Max entry</label>
+          <input id="rule-maxpx" type="number" min="0.3" max="0.9" step="0.01" value="0.68" />
+        </div>
+        <div>
+          <label for="rule-assets">Assets</label>
+          <select id="rule-assets">
+            <option value="BTC,ETH" selected>BTC + ETH</option>
+            <option value="BTC">BTC only</option>
+            <option value="ETH">ETH only</option>
+          </select>
+        </div>
+        <div>
+          <label for="rule-mintp">Min full TP $</label>
+          <input id="rule-mintp" type="number" min="2" max="50" step="1" value="5" />
+        </div>
+      </div>
+      <div class="panel-h" style="margin-top:1.15rem"><span>Live signals</span><span class="mute" id="sig-age">—</span></div>
+      <div id="sig-btc" class="mono" style="font-size:.8rem;margin-bottom:.55rem">BTC …</div>
+      <div id="sig-eth" class="mono" style="font-size:.8rem;margin-bottom:.85rem">ETH …</div>
+      <div class="panel-h"><span>Open positions</span></div>
+      <div id="positions" class="mute">No open positions.</div>
+    </div>
+  </section>
+
+  <section class="board" style="padding-top:0">
+    <div class="panel">
+      <div class="panel-h"><span>Execution tape</span><span id="tape-count" class="mute">0</span></div>
+      <div id="tape"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><span>Settled trades</span><span class="mute">net of CLOB fees</span></div>
+      <div id="trades"></div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div>Pilot · usezinger.xyz · modeled on Rainmaker funnel (wallet → fund → rules → agent) without $RAIN gate</div>
+    <div class="mono"><a href="https://play.zinger.kierkegaard.space/#signals">Published bot paper →</a></div>
+  </footer>
+</div>
+
+<script>
+const API = (() => {
+  const h = location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1') {
+    return location.port === '3010' ? '/api/v1' : 'http://127.0.0.1:3010/api/v1';
+  }
+  if (
+    h === 'usezinger.xyz' || h === 'www.usezinger.xyz'
+    || h === 'zinger.xyz' || h === 'www.zinger.xyz'
+    || h.startsWith('pilot.')
+  ) {
+    return '/api/v1';
+  }
+  return 'https://zinger.kierkegaard.space/api/v1';
+})();
+
+const $ = (id) => document.getElementById(id);
+const money = (n, d = 2) => {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '—';
+  return '$' + x.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+};
+const fmt = (n, d = 3) => {
+  const x = Number(n);
+  return Number.isFinite(x) ? x.toFixed(d) : '—';
+};
+
+const state = {
+  wallet: null,
+  rules: JSON.parse(localStorage.getItem('zinger_pilot_rules') || 'null') || {
+    maxPositionPct: 10,
+    minConfidence: 0.38,
+    minPrice: 0.42,
+    maxPrice: 0.68,
+    assets: 'BTC,ETH',
+    mode: 'paper',
+    minTpUsd: 5,
+  },
+  pred: null,
+  withdrawn: Number(localStorage.getItem('zinger_pilot_withdrawn') || 0) || 0,
+};
+
+function setStep(n) {
+  for (let i = 1; i <= 4; i++) {
+    $('step-' + i)?.classList.toggle('on', i <= n);
+  }
+}
+
+function setMode(mode, { persist = true } = {}) {
+  const next = mode === 'live' ? 'live' : 'paper';
+  state.rules.mode = next;
+  if (persist) {
+    localStorage.setItem('zinger_pilot_rules', JSON.stringify(state.rules));
+  }
+  $('mode-paper').dataset.active = String(next === 'paper');
+  $('mode-live').dataset.active = String(next === 'live');
+  $('mode-chip').textContent = next.toUpperCase();
+  $('mode-kicker').textContent = next === 'live'
+    ? 'Live mode · CLOB execution (gated)'
+    : 'Paper mode · prove the book';
+  const note = $('mode-note');
+  note.dataset.mode = next;
+  note.innerHTML = next === 'live'
+    ? '<strong>Live</strong> — orders use real CLOB fee-rate / fd schedule on your wallet. Executor still refuses any signal outside your rules. Custody path shipping next.'
+    : '<strong>Paper</strong> — same signal stack and CLOB fee schedule as live orders. Live unlocks when your rules + wallet custody path are ready; toggle stays visible either way.';
+  $('status-line').textContent = next === 'live'
+    ? 'Live selected — connect wallet + rules before any CLOB size'
+    : 'Paper selected — deposits hit the sim book';
+  if (next === 'live') {
+    $('btn-deposit').textContent = 'Fund (soon)';
+    $('btn-deposit').disabled = true;
+  } else {
+    $('btn-deposit').textContent = 'Deposit';
+    $('btn-deposit').disabled = false;
+  }
+}
+
+function applyRulesToForm() {
+  $('rule-maxpct').value = state.rules.maxPositionPct;
+  $('rule-minconf').value = state.rules.minConfidence;
+  $('rule-minpx').value = state.rules.minPrice;
+  $('rule-maxpx').value = state.rules.maxPrice;
+  $('rule-assets').value = state.rules.assets;
+  $('rule-mintp').value = state.rules.minTpUsd ?? 5;
+  setMode(state.rules.mode || 'paper', { persist: false });
+}
+
+function saveRules() {
+  state.rules = {
+    ...state.rules,
+    maxPositionPct: Number($('rule-maxpct').value),
+    minConfidence: Number($('rule-minconf').value),
+    minPrice: Number($('rule-minpx').value),
+    maxPrice: Number($('rule-maxpx').value),
+    assets: $('rule-assets').value,
+    minTpUsd: Number($('rule-mintp').value),
+    mode: state.rules.mode || 'paper',
+  };
+  localStorage.setItem('zinger_pilot_rules', JSON.stringify(state.rules));
+  $('status-line').textContent = 'Rules saved — executor will refuse breaches';
+  setStep(state.wallet ? 3 : 1);
+}
+
+function renderSignal(el, s) {
+  if (!s) { el.textContent = 'warming…'; return; }
+  const dir = String(s.direction || 'neutral').toUpperCase();
+  const cls = s.direction === 'up' ? 'up' : s.direction === 'down' ? 'dn' : 'mute';
+  el.innerHTML = `<span class="${cls}">${s.asset || ''} ${dir}</span> · conf ${fmt(s.confidence, 2)} · score ${fmt(s.score, 2)} · ${s.action || 'hold'}`;
+}
+
+function renderPilot(d) {
+  const paper = d?.paper;
+  const bot = d?.botPaper;
+  if (!paper && !bot) return;
+  const book = paper?.equity != null ? paper : bot;
+  const deployed = Number(book.initialBankroll || 1000);
+  const eq = Number(book.equity || 0);
+  const cash = Number(book.cash || 0);
+  const delta = eq - deployed;
+  $('eq').textContent = money(eq, 2);
+  $('eq').className = 'v ' + (delta >= 0 ? 'up' : 'dn');
+  $('eq-sub').textContent = `${delta >= 0 ? '+' : ''}${money(delta, 2)} vs ${money(deployed, 0)}`;
+  $('cash').textContent = money(cash, 2);
+  $('fees').textContent = `fees ${money(book.feesPaid || 0, 4)}`;
+  $('realized').textContent = `${Number(book.realizedPnl || 0) >= 0 ? '+' : ''}${money(book.realizedPnl, 2)}`;
+  $('realized').className = 'v ' + (Number(book.realizedPnl || 0) >= 0 ? 'up' : 'dn');
+  $('wr').textContent = book.winRate == null ? 'WR —' : `WR ${book.winRate}% · ${book.wins || 0}W/${book.losses || 0}L`;
+  $('open-n').textContent = String(book.openCount ?? (book.open || []).length);
+  $('bot-line').textContent = bot?.running ? 'signal bot live' : (book.status || 'idle');
+  $('bot-line').className = bot?.running || book.status === 'running' ? 'up' : 'mute';
+  $('bankroll-line').textContent = `${money(cash, 2)} available · equity ${money(eq, 2)} · withdrawn ${money(state.withdrawn, 2)}`;
+  $('withdraw-amt').max = String(Math.floor(Math.max(0, cash - state.withdrawn)));
+  $('fee-line').textContent = (book.fees && book.fees.formula) || 'Fees = live CLOB fd.r/e';
+
+  renderSignal($('sig-btc'), d.signals?.btc);
+  renderSignal($('sig-eth'), d.signals?.eth);
+  const age = d.feed?.ageMs;
+  $('sig-age').textContent = age == null ? '—' : `age ${Math.round(age / 1000)}s`;
+
+  const open = book.open || [];
+  $('positions').innerHTML = open.map((p) => {
+    const asset = p.asset || p.symbol || '?';
+    const unreal = p.unrealizedPnl ?? p.pnl ?? 0;
+    const tp = p.tpPnl != null ? ` · TP ${money(p.tpPnl, 2)}` : '';
+    return `<div class="row"><span class="t">${asset}</span><span>${String(p.outcome || '').toUpperCase()} @ ${fmt(p.entry, 3)} → ${fmt(p.mark, 3)}${tp}</span><span class="mono ${Number(unreal) >= 0 ? 'up' : 'dn'}">${Number(unreal) >= 0 ? '+' : ''}${money(unreal, 2)}</span></div>`;
+  }).join('') || '<p class="mute">No open positions — waiting for a rule-compliant signal.</p>';
+
+  const events = book.events || [];
+  $('tape-count').textContent = `${events.length}`;
+  $('tape').innerHTML = events.slice(0, 20).map((e) => `
+    <div class="row"><span class="t">${e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : ''}</span><span class="${e.type === 'open' || e.type === 'buy' || e.type === 'deploy' ? 'up' : 'mute'}">${e.message}</span><span class="mono mute">${e.fee != null ? 'fee $' + Number(e.fee).toFixed(4) : ''}</span></div>
+  `).join('') || '<p class="mute">Tape empty until first fill.</p>';
+
+  const trades = book.trades || book.recentTrades || [];
+  $('trades').innerHTML = trades.slice(0, 16).map((t) => `
+    <div class="row"><span class="t">${(t.closedAt || t.timestamp) ? new Date(t.closedAt || t.timestamp).toLocaleTimeString() : ''}</span><span>${t.asset || t.symbol || '?'} ${String(t.outcome || '').toUpperCase()} · ${t.reason || 'close'}</span><span class="mono ${Number(t.pnl || 0) >= 0 ? 'up' : 'dn'}">${Number(t.pnl || 0) >= 0 ? '+' : ''}${money(t.pnl, 2)}</span></div>
+  `).join('') || '<p class="mute">No closed trades yet.</p>';
+
+  if (open.length || (book.events || []).length > 1) setStep(4);
+  else if (book.deployedAt || book.initialBankroll) setStep(state.wallet ? 3 : 2);
+}
+
+async function connectWallet() {
+  const btn = $('btn-connect');
+  btn.disabled = true;
+  try {
+    if (!window.ethereum) throw new Error('Install MetaMask or another Polygon wallet');
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const address = accounts?.[0];
+    if (!address) throw new Error('No account');
+    let chainId = 137;
+    try { chainId = parseInt(await window.ethereum.request({ method: 'eth_chainId' }), 16); } catch {}
+    state.wallet = { address, chainId };
+    $('addr').textContent = address;
+    await fetch(API + '/pilot/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, chainId }),
+    });
+    $('status-line').textContent = chainId === 137 ? 'Connected on Polygon' : `Connected · chain ${chainId}`;
+    $('btn-withdraw').disabled = false;
+    btn.textContent = 'Connected';
+    setStep(2);
+  } catch (err) {
+    $('status-line').textContent = err.message || String(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function depositPaper() {
+  if (state.rules.mode === 'live') {
+    $('status-line').textContent = 'Live funding ships with custody — use Paper to deposit sim bankroll';
+    return;
+  }
+  const btn = $('btn-deposit');
+  btn.disabled = true;
+  try {
+    const bankroll = Number($('deposit-amt').value || 1000);
+    if (!(bankroll >= 100 && bankroll <= 10000)) throw new Error('Deposit 100–10000');
+    const body = { bankroll };
+    if (state.wallet?.address) {
+      body.address = state.wallet.address;
+      body.chainId = state.wallet.chainId || 137;
+    }
+    const res = await fetch(API + '/pilot/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => r.json());
+    if (!res.ok) throw new Error(res.error || 'deposit failed');
+    state.withdrawn = 0;
+    localStorage.setItem('zinger_pilot_withdrawn', '0');
+    if (state.pred) state.pred.paper = res.paper;
+    renderPilot({ ...(state.pred || {}), paper: res.paper });
+    $('status-line').textContent = `Deposited ${money(bankroll, 0)} paper · book reset`;
+    setStep(3);
+  } catch (err) {
+    $('status-line').textContent = err.message || String(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function withdrawPaper() {
+  const amt = Number($('withdraw-amt').value || 0);
+  const cash = Number(state.pred?.paper?.cash || 0);
+  if (!(amt > 0)) {
+    $('status-line').textContent = 'Enter a withdraw amount';
+    return;
+  }
+  if (amt > cash) {
+    $('status-line').textContent = 'Withdraw exceeds available cash (open positions reserved)';
+    return;
+  }
+  state.withdrawn = Math.round((state.withdrawn + amt) * 100) / 100;
+  localStorage.setItem('zinger_pilot_withdrawn', String(state.withdrawn));
+  $('status-line').textContent = `Recorded withdraw ${money(amt, 2)} (paper ledger) — live Polymarket withdraw ships with custody`;
+  renderPilot(state.pred || {});
+}
+
+async function tick() {
+  try {
+    const d = await fetch(API + '/pilot').then((r) => r.json());
+    state.pred = d;
+    renderPilot(d);
+    $('api-pill').textContent = `API · ${API.replace(/^https?:\/\//, '')}`;
+    $('api-pill').classList.add('on');
+    $('signal-source').textContent = `${API} · bot ${d.botPaper?.instance || '—'} · ${d.feed?.botRunning ? 'running' : 'signals only'}`;
+  } catch (err) {
+    $('api-pill').textContent = 'API down';
+    $('api-pill').classList.remove('on');
+    $('status-line').textContent = err.message || String(err);
+  }
+}
+
+applyRulesToForm();
+setStep(1);
+$('mode-paper').onclick = () => setMode('paper');
+$('mode-live').onclick = () => setMode('live');
+$('btn-connect').onclick = () => connectWallet();
+$('btn-deposit').onclick = () => depositPaper();
+$('btn-withdraw').onclick = () => withdrawPaper();
+$('btn-save-rules').onclick = () => saveRules();
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
