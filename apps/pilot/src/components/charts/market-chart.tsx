@@ -22,7 +22,7 @@ export interface MarketChartSignal {
   confidence?: number;
 }
 
-interface MarketChartProps {
+export interface MarketChartProps {
   history: PricePoint[];
   livePrice?: number | null;
   entryPrice?: number | null;
@@ -112,7 +112,7 @@ export function MarketChart({
       out.push({
         time: lastT as UTCTimestamp,
         position: dir === "up" ? "aboveBar" : "belowBar",
-        color: dir === "up" ? "#c8ff00" : "#ff4d5e",
+        color: dir === "up" ? "#3b82f6" : "#ff4d5e",
         shape: dir === "up" ? "arrowUp" : "arrowDown",
         text: `${dir === "up" ? "BUY" : "SELL"}${conf ? ` ${conf}%` : ""}`,
       });
@@ -135,8 +135,8 @@ export function MarketChart({
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
-        horzLines: { color: "rgba(255,255,255,0.04)" },
+        vertLines: { color: "rgba(128,128,128,0.08)" },
+        horzLines: { color: "rgba(128,128,128,0.08)" },
       },
       rightPriceScale: {
         borderVisible: false,
@@ -149,20 +149,20 @@ export function MarketChart({
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: "rgba(200,255,0,0.25)", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#1f2937" },
-        horzLine: { color: "rgba(200,255,0,0.25)", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#1f2937" },
+        vertLine: { color: "rgba(59,130,246,0.25)", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#2563eb" },
+        horzLine: { color: "rgba(59,130,246,0.25)", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#2563eb" },
       },
     });
 
     const series = chart.addSeries(LineSeries, {
-      color: compact ? "#c8ff00" : "#dfff4d",
+      color: compact ? "#3b82f6" : "#2563eb",
       lineWidth: compact ? 1 : 2,
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: compact ? 2 : 3,
-      crosshairMarkerBorderColor: "#050607",
-      crosshairMarkerBackgroundColor: "#c8ff00",
+      crosshairMarkerBorderColor: "#ffffff",
+      crosshairMarkerBackgroundColor: "#3b82f6",
     });
 
     const markers = createSeriesMarkers(series, []);
@@ -200,7 +200,7 @@ export function MarketChart({
     if (target != null && Number.isFinite(target)) {
       targetLineRef.current = series.createPriceLine({
         price: target,
-        color: "#c8ff00",
+        color: "#2563eb",
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,

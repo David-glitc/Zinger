@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { motion } from "motion/react";
 import type { Mode } from "@/lib/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { WalletConnectCompact } from "@/components/wallet/wallet-connect-button";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu } from "lucide-react";
+import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Menu, X, LayoutDashboard } from "lucide-react";
 
 const NAV: Array<{ href: string; label: string; external?: boolean }> = [
   { href: "#features", label: "Features" },
@@ -64,6 +65,7 @@ export function SiteHeader({
   ctaHref?: string;
 }) {
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <motion.header
@@ -82,55 +84,41 @@ export function SiteHeader({
 
         {showNav ? (
           <nav className="hidden items-center gap-6 text-base text-muted-foreground md:flex">
-            {NAV.map((item, i) =>
-              item.external ? (
-                <motion.a
-                  key={item.href}
-                  href={item.href}
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 * i, duration: 0.3 }}
-                  className="font-sans transition-colors hover:text-foreground"
-                >
-                  {item.label}
-                </motion.a>
-              ) : (
-                <motion.a
-                  key={item.href}
-                  href={item.href}
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 * i, duration: 0.3 }}
-                  className="font-sans transition-colors hover:text-foreground"
-                >
-                  {item.label}
-                </motion.a>
-              ),
-            )}
+            {NAV.map((item, i) => (
+              <motion.a
+                key={item.href}
+                href={item.href}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 * i, duration: 0.3 }}
+                className="font-sans transition-colors hover:text-foreground"
+              >
+                {item.label}
+              </motion.a>
+            ))}
           </nav>
         ) : null}
 
         <div className="flex items-center gap-2 sm:gap-3">
           {children}
+          <ThemeToggle />
           {showNav ? (
             <>
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.2, duration: 0.3 }}
+                className="hidden sm:block"
               >
                 <Button
                   size="sm"
-                  className="hidden rounded-2xl bg-primary px-4 text-primary-foreground hover:bg-primary/90 sm:inline-flex"
+                  className="rounded-2xl bg-primary px-4 text-primary-foreground hover:bg-primary/90"
                   onClick={() => router.push(ctaHref)}
                 >
                   Dashboard
                 </Button>
               </motion.div>
-              <div className="hidden sm:block">
-                <WalletConnectCompact />
-              </div>
-              <Sheet>
+              <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
                 <SheetTrigger asChild className="md:hidden">
                   <Button
                     variant="outline"
@@ -141,30 +129,54 @@ export function SiteHeader({
                     <Menu className="size-4 text-foreground" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-72 border-border bg-background">
-                  <nav className="mt-8 flex flex-col gap-4">
+                <SheetContent
+                  side="left"
+                  showCloseButton={false}
+                  className="w-72 border-border bg-background"
+                >
+                  <div className="flex h-14 items-center justify-between border-b border-border/70 px-4">
+                    <Link href="/" onClick={() => setMenuOpen(false)} className="font-display text-[17px] font-[500] tracking-tight text-foreground">
+                      Zinger
+                    </Link>
+                    <SheetClose className="text-muted-foreground" aria-label="Close menu">
+                      <X className="size-5" />
+                    </SheetClose>
+                  </div>
+                  <nav className="flex flex-1 flex-col gap-1 p-3">
                     {NAV.map((item) => (
                       <a
                         key={item.href}
                         href={item.href}
-                        className="font-sans text-base text-muted-foreground transition-colors hover:text-foreground"
+                        onClick={() => setMenuOpen(false)}
+                        className="rounded-lg px-3 py-2.5 font-sans text-base text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                       >
                         {item.label}
                       </a>
                     ))}
+                  </nav>
+                  <div className="mt-auto border-t border-border/70 p-4">
                     <Button
-                      className="mt-4 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90"
-                      onClick={() => router.push(ctaHref)}
+                      className="w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        router.push(ctaHref);
+                      }}
                     >
+                      <LayoutDashboard className="mr-2 size-4" />
                       Open dashboard
                     </Button>
-                    <WalletConnectCompact />
-                  </nav>
+                  </div>
                 </SheetContent>
               </Sheet>
             </>
           ) : (
-            <WalletConnectCompact />
+            <Button
+              size="sm"
+              className="rounded-2xl bg-primary px-4 text-primary-foreground hover:bg-primary/90"
+              onClick={() => router.push(ctaHref)}
+            >
+              Dashboard
+            </Button>
           )}
         </div>
       </div>

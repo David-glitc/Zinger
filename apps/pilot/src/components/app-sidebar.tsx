@@ -6,6 +6,7 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { WalletConnectCompact } from "@/components/wallet/wallet-connect-button";
 import type { Mode } from "@/lib/api";
 import {
@@ -40,7 +41,7 @@ export function ModeRail({
   disabled?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-0.5 rounded-lg border border-border/70 bg-black/40 p-0.5">
+    <div className="grid grid-cols-2 gap-0.5 rounded-lg border border-border/70 bg-muted/40 p-0.5">
       {(["paper", "live"] as const).map((m) => {
         const active = mode === m;
         return (
@@ -54,7 +55,7 @@ export function ModeRail({
               active
                 ? m === "live"
                   ? "bg-[#ff4d5e]/90 text-white shadow-[0_0_18px_-4px_rgba(255,77,94,0.6)]"
-                  : "bg-primary text-primary-foreground shadow-[0_0_18px_-4px_rgba(200,255,0,0.7)]"
+                  : "bg-primary text-primary-foreground shadow-[0_0_18px_-4px_rgba(59,130,246,0.5)]"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -95,14 +96,14 @@ export function AppSidebar({
             className={cn(
               "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 font-sans text-[13px] transition-colors",
               active
-                ? "bg-[#c8ff00]/8 text-foreground"
+                ? "bg-primary/10 text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
             {active && (
               <motion.span
                 layoutId="zg-nav-active"
-                className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_12px_rgba(200,255,0,0.8)]"
+                className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_12px_rgba(59,130,246,0.7)]"
               />
             )}
             <item.icon
@@ -218,6 +219,9 @@ export function AppSidebar({
         <div className={cn("mt-2 [&_button]:w-full", collapsed && "mt-2")}>
           <WalletConnectCompact />
         </div>
+        <div className={cn("mt-2", collapsed && "flex justify-center")}>
+          <ThemeToggle className="w-full" />
+        </div>
       </div>
     </div>
   );
@@ -235,6 +239,7 @@ export function AppSidebar({
           </span>
         </Link>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <Button
             variant="outline"
             size="sm"
@@ -274,9 +279,12 @@ export function AppSidebar({
           >
             <div className="flex h-14 items-center justify-between border-b border-border/70 px-4">
               {brand}
-              <button onClick={() => setMobileOpen(false)} className="text-muted-foreground">
-                <X className="size-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <ThemeToggle />
+                <button onClick={() => setMobileOpen(false)} className="text-muted-foreground">
+                  <X className="size-5" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <div className="mb-4">

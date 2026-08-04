@@ -44,7 +44,7 @@ interface FlowNode {
   sub: string;
   value: number | null;
   icon: React.ComponentType<{ className?: string }>;
-  tone: "volt" | "green" | "rose" | "neutral";
+  tone: "blue" | "green" | "rose" | "neutral";
   data?: Array<{ k: string; v: string }>;
   href?: string;
 }
@@ -74,7 +74,7 @@ export function FundsFlow({ data }: { data: FundsFlowData }) {
         sub: live ? "USDC → pUSD, 1% fee" : "paper credit, 1% fee",
         value: data.depositedGross,
         icon: ArrowDownToLine,
-        tone: "volt",
+        tone: "blue",
         data: [
           { k: "Gross deposited", v: money(data.depositedGross) },
           { k: "Withdrawn", v: money(data.withdrawn) },
@@ -111,7 +111,7 @@ export function FundsFlow({ data }: { data: FundsFlowData }) {
         sub: live ? `session PnL ${money(data.sessionCashPnl ?? null)}` : "execution",
         value: data.liveCash,
         icon: Coins,
-        tone: "volt",
+        tone: "blue",
         href: "/app/vault",
         data: [
           { k: "Spendable", v: money(data.liveCash) },
@@ -186,15 +186,15 @@ export function FundsFlow({ data }: { data: FundsFlowData }) {
         className={cn(
           "zg-frame zg-glass relative w-full overflow-hidden rounded-xl p-3 text-left transition-all",
           dim && "opacity-30 saturate-0",
-          active && "ring-1 ring-primary/60 shadow-[0_0_24px_-6px_rgba(200,255,0,0.5)]",
-          node.tone === "volt" && active && "border-primary/40",
+          active && "ring-1 ring-primary/60 shadow-[0_0_24px_-6px_rgba(59,130,246,0.4)]",
+          node.tone === "blue" && active && "border-primary/40",
         )}
       >
         <div className="flex items-center justify-between gap-2">
           <node.icon
             className={cn(
               "size-4",
-              node.tone === "volt"
+              node.tone === "blue"
                 ? "text-primary"
                 : node.tone === "green"
                   ? "text-[var(--success)]"
@@ -214,7 +214,7 @@ export function FundsFlow({ data }: { data: FundsFlowData }) {
         <p
           className={cn(
             "mt-1.5 font-mono text-lg font-semibold tabular-nums tracking-tight",
-            node.tone === "volt"
+            node.tone === "blue"
               ? "text-primary"
               : node.tone === "green"
                 ? "text-[var(--success)]"

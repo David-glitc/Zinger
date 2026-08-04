@@ -10,6 +10,7 @@ import { Play, Square, Radio, ArrowUpRight, ArrowDownRight, Plus } from "lucide-
 import { PageHeading, Stat, GlassPanel, SectionLabel } from "@/components/app/app-ui";
 import { SignalPanel } from "@/components/dashboard/signal-panel";
 import { CapitalInsights } from "@/components/dashboard/capital-insights";
+import { LiveTradePanel } from "@/components/dashboard/live-trade-panel";
 import { GeoblockAlert } from "@/components/dashboard/geoblock-status";
 import { PulseDot } from "@/components/animations/pulse-dot";
 import { MarketStrip } from "@/components/charts/market-strip";
@@ -39,8 +40,20 @@ export default function CommandPage() {
 
   if (isLoading && !snap) {
     return (
-      <div className="flex min-h-svh items-center justify-center font-mono text-[12px] uppercase tracking-[0.2em] text-muted-foreground">
-        Connecting vault…
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+        <div className="space-y-3">
+          <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+          <div className="h-8 w-64 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="h-64 animate-pulse rounded-xl bg-muted" />
+          <div className="h-64 animate-pulse rounded-xl bg-muted" />
+        </div>
       </div>
     );
   }
@@ -63,8 +76,17 @@ export default function CommandPage() {
           }
           actions={
             <div className="flex items-center gap-2">
-              <span className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground sm:block">
-                Books · fee {(feeRate * 100).toFixed(0)}% · {mode}
+              <span className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground sm:flex">
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    Number(snap?.feed?.ageMs ?? 0) < 8000
+                      ? "bg-[var(--success)]"
+                      : "bg-warning",
+                  )}
+                />
+                Books · fee {(feeRate * 100).toFixed(0)}% · {mode} ·{" "}
+                {snap?.feed?.ageMs != null ? `${Math.max(0, Math.round(Number(snap.feed.ageMs) / 1000))}s` : "—"}
               </span>
               <Button
                 size="lg"
@@ -74,7 +96,7 @@ export default function CommandPage() {
                   "min-w-[150px] rounded-xl font-mono text-[12px] uppercase tracking-[0.14em]",
                   sessionRunning
                     ? "border border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/20"
-                    : "zg-volt-btn text-[#070a02]",
+                    : "zg-volt-btn text-white",
                 )}
               >
                 {sessionRunning ? (
@@ -179,6 +201,20 @@ export default function CommandPage() {
           </Button>
         </div>
       ) : null}
+
+      {/* Live trade + trade-value chart */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <SectionLabel>Position radar</SectionLabel>
+          <Link
+            href="/app/book"
+            className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline"
+          >
+            Full book <ArrowUpRight className="size-3" />
+          </Link>
+        </div>
+        <LiveTradePanel open={opens[0] || null} />
+      </section>
 
       {/* Markets strip */}
       <section className="space-y-3">

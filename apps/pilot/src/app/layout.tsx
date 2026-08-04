@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Space_Grotesk, Instrument_Serif } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
-import { AppProviders } from "@/providers/app-providers";
 import { ThemeProvider } from "@/providers/theme-provider";
 import "@/styles/globals.css";
 
@@ -14,7 +13,7 @@ const display = Space_Grotesk({
 const sans = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const mono = JetBrains_Mono({
@@ -74,7 +73,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#050607",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
   width: "device-width",
   initialScale: 1,
 };
@@ -86,14 +88,12 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`dark ${display.variable} ${sans.variable} ${mono.variable} ${serif.variable}`}
+      className={`${display.variable} ${sans.variable} ${mono.variable} ${serif.variable}`}
     >
-      <body className="zg-noise min-h-svh bg-background font-[family-name:var(--font-sans)] text-foreground antialiased">
+      <body className="min-h-svh bg-background font-[family-name:var(--font-sans)] text-foreground antialiased">
         <ThemeProvider>
-          <AppProviders>
-            {children}
-            <Toaster richColors position="top-center" />
-          </AppProviders>
+          {children}
+          <Toaster richColors position="top-center" />
         </ThemeProvider>
       </body>
     </html>

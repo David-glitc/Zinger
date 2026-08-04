@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { ArrowUpRight } from "lucide-react";
 import { useMarketChart } from "@/hooks/use-market-chart";
-import { MarketChart } from "@/components/charts/market-chart";
+import { MarketChartLazy } from "@/components/charts/market-chart-lazy";
 
 interface MarketStripProps {
   markets: Array<Record<string, unknown>>;
@@ -89,7 +89,7 @@ function MarketStripCard({
               loading…
             </div>
           ) : (
-            <MarketChart
+            <MarketChartLazy
               history={history}
               height={112}
               compact

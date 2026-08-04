@@ -3,28 +3,22 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ArrowRight } from "lucide-react";
-import { useAccount } from "wagmi";
-import { WalletConnectButton } from "@/components/wallet/wallet-connect-button";
 import { Button } from "@/components/ui/button";
 
 function DashboardCta({ size = "lg" }: { size?: "default" | "lg" }) {
   const router = useRouter();
   return (
-    <WalletConnectButton
+    <Button
       size={size}
-      className="zg-volt-btn rounded-xl px-8 text-[#070a02]"
-      label="Connect wallet"
-      connectedLabel="Open dashboard"
-      onConnectedClick={() => router.push("/app")}
-    />
+      className="zg-volt-btn rounded-xl px-8 text-white"
+      onClick={() => router.push("/app")}
+    >
+      Launch app
+    </Button>
   );
 }
 
 export default function Hero() {
-  const router = useRouter();
-  const { isConnected } = useAccount();
-
   return (
     <section className="relative mx-auto flex min-h-[85vh] max-w-6xl flex-col justify-center px-6 pb-24 pt-28 sm:px-8 sm:pt-32">
       <motion.p
@@ -61,26 +55,14 @@ export default function Hero() {
         className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center"
       >
         <DashboardCta size="lg" />
-        {isConnected ? (
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => router.push("/app")}
-            className="rounded-2xl border-border px-6 text-foreground"
-          >
-            Go to dashboard
-            <ArrowRight className="ml-2 size-4" />
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="lg"
-            asChild
-            className="rounded-2xl px-6 text-muted-foreground"
-          >
-            <Link href="#how">How it works</Link>
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="lg"
+          asChild
+          className="rounded-2xl px-6 text-muted-foreground"
+        >
+          <Link href="#how">How it works</Link>
+        </Button>
       </motion.div>
       <motion.div
         initial={{ opacity: 0 }}

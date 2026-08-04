@@ -165,7 +165,7 @@ export default function SettingsPage() {
               size="sm"
               disabled={busy || !dirty}
               onClick={onSave}
-              className="zg-volt-btn rounded-lg font-mono text-[11px] uppercase tracking-[0.14em] text-[#070a02]"
+              className="zg-volt-btn rounded-lg font-mono text-[11px] uppercase tracking-[0.14em] text-white"
             >
               <Save className="mr-1.5 size-3.5" /> Save bands
             </Button>

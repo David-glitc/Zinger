@@ -7,6 +7,7 @@ import Stats from "@/components/landing/stats";
 import Faq from "@/components/landing/faq";
 import Cta from "@/components/landing/cta";
 import HowItWorks from "@/components/landing/how-it-works";
+import Waitlist from "@/components/landing/waitlist";
 
 export default function LandingPage() {
   return (
@@ -18,6 +19,7 @@ export default function LandingPage() {
       <Features />
       <HowItWorks />
       <Stats />
+      <Waitlist />
       <Faq />
       <Cta />
       <footer className="border-t border-border py-8 text-center font-sans text-sm text-muted-foreground">

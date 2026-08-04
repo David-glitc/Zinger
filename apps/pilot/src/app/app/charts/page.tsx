@@ -9,8 +9,10 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { CandlestickChart, Clock, Target, TrendingUp, TrendingDown, History } from "lucide-react";
 import { PageHeading, GlassPanel, SectionLabel } from "@/components/app/app-ui";
-import { MarketChart } from "@/components/charts/market-chart";
+import { MarketChartLazy } from "@/components/charts/market-chart-lazy";
 import { GeoblockAlert } from "@/components/dashboard/geoblock-status";
+import { useClobFeed } from "@/hooks/use-clob-feed";
+import { PulseDot } from "@/components/animations/pulse-dot";
 
 function PastMarketCard({ slug, outcome, pnl }: { slug: string; outcome: string; pnl: number }) {
   const { detail, history, historyLoading } = useMarketChart(slug, "1d");
@@ -52,7 +54,7 @@ function PastMarketCard({ slug, outcome, pnl }: { slug: string; outcome: string;
             loading…
           </div>
         ) : (
-          <MarketChart
+          <MarketChartLazy
             history={history}
             height={64}
             compact
@@ -332,6 +334,10 @@ function ChartForToken({
   const { detail, historyLoading, detailError } = useMarketChart(slug, duration);
   const tokenId = detail?.clobTokenIds?.[detailToken] ?? null;
   const tokenHistory = usePriceHistory(tokenId, duration).data ?? [];
+  const feed = useClobFeed(
+    detail?.conditionId != null ? String(detail.conditionId) : null,
+    tokenId,
+  );
 
   const dir = String(open?.outcome || "").toLowerCase();
   const entryPrice = open && token === dir ? Number(open.entryPrice ?? null) : null;
@@ -355,13 +361,27 @@ function ChartForToken({
   }
 
   return (
-    <MarketChart
-      history={tokenHistory}
-      height={360}
-      entryPrice={entryPrice}
-      target={target}
-      signal={signal}
-      title={`${String(detail?.question || slug)} · ${String(detail?.marketId || "")}`}
-    />
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-end gap-1.5 font-mono text-[9px] uppercase tracking-[0.14em]">
+        <span
+          className={cn(
+            "flex items-center gap-1.5",
+            feed.connected ? "text-[var(--success)]" : "text-warning",
+          )}
+        >
+          <PulseDot active={feed.connected} />
+          {feed.connected ? "live feed" : "reconnecting…"}
+        </span>
+      </div>
+      <MarketChartLazy
+        history={tokenHistory}
+        livePrice={feed.lastPrice}
+        height={360}
+        entryPrice={entryPrice}
+        target={target}
+        signal={signal}
+        title={`${String(detail?.question || slug)} · ${String(detail?.marketId || "")}`}
+      />
+    </div>
   );
 }

@@ -120,7 +120,7 @@ export function GlassPanel({
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <h2 className="mb-2.5 flex items-center gap-2 font-display text-[15px] font-[500] tracking-tight text-foreground">
-      <span className="size-1 rounded-full bg-primary shadow-[0_0_8px_rgba(200,255,0,0.9)]" />
+      <span className="size-1 rounded-full bg-primary shadow-[0_0_8px_rgba(59,130,246,0.7)]" />
       {children}
     </h2>
   );

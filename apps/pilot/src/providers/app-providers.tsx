@@ -1,15 +1,18 @@
 "use client";
 
 import "@rainbow-me/rainbowkit/styles.css";
-import { RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
+import { RainbowKitProvider, darkTheme, lightTheme } from "@rainbow-me/rainbowkit";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { polygon } from "wagmi/chains";
+import { useTheme } from "next-themes";
 import { wagmiConfig } from "@/config/web3";
 import { getQueryClient } from "@/lib/query-client";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme !== "light";
 
   return (
     <WagmiProvider config={wagmiConfig}>
@@ -17,12 +20,21 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <RainbowKitProvider
           initialChain={polygon}
           modalSize="compact"
-          theme={darkTheme({
-            accentColor: "#c8ff00",
-            accentColorForeground: "#070a02",
-            borderRadius: "medium",
-            overlayBlur: "small",
-          })}
+          theme={
+            dark
+              ? darkTheme({
+                  accentColor: "#3b82f6",
+                  accentColorForeground: "#ffffff",
+                  borderRadius: "medium",
+                  overlayBlur: "small",
+                })
+              : lightTheme({
+                  accentColor: "#2563eb",
+                  accentColorForeground: "#ffffff",
+                  borderRadius: "medium",
+                  overlayBlur: "small",
+                })
+          }
         >
           {children}
         </RainbowKitProvider>

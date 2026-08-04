@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { WalletConnectButton } from "@/components/wallet/wallet-connect-button";
+import { Button } from "@/components/ui/button";
 
 export default function Cta() {
   const router = useRouter();
@@ -23,16 +23,16 @@ export default function Cta() {
             mode is free — live mode trades your Polymarket pUSD.
           </p>
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <WalletConnectButton
+            <Button
               size="lg"
               className="rounded-2xl bg-primary px-10 text-white hover:bg-primary/90 shadow-lg"
-              label="Connect wallet"
-              connectedLabel="Open dashboard"
-              onConnectedClick={() => router.push("/app")}
-            />
+              onClick={() => router.push("/app")}
+            >
+              Launch app
+            </Button>
           </div>
           <p className="mt-6 font-sans text-sm text-muted-foreground">
-            No token gate · No email · No custodial risk
+            No token gate · No custodial risk · Paper mode free today
           </p>
         </motion.div>
       </div>

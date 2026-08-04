@@ -16,8 +16,6 @@ import {
   Activity,
   Search,
   ArrowDownUp,
-  CheckCircle2,
-  XCircle,
   Copy,
   Check,
   ChevronDown,
@@ -55,9 +53,7 @@ export default function BookPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const reconcile = (liveAcct?.reconcile ?? null) as Record<string, unknown> | null;
   const traces = (liveAcct?.traces ?? []) as Array<Record<string, unknown>>;
-  const mismatches = (liveAcct?.mismatches ?? []) as Array<Record<string, unknown>>;
   const pmEvents = useMemo(
     () => (liveAcct?.recentEvents ?? []) as Array<Record<string, unknown>>,
     [liveAcct],
@@ -150,102 +146,71 @@ export default function BookPage() {
         <FundsFlow data={flowData} />
       </section>
 
-      {/* Reconciliation */}
-      {reconcile ? (
-        <section className="space-y-3">
-          <SectionLabel>Reconciliation</SectionLabel>
-          <div className="zg-glass grid gap-3 rounded-xl p-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="flex items-center gap-2">
-              {reconcile.ok ? (
-                <CheckCircle2 className="size-4 text-[var(--success)]" />
-              ) : (
-                <XCircle className="size-4 text-destructive" />
-              )}
-              <div>
-                <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                  Status
-                </p>
-                <p
-                  className={cn(
-                    "font-mono text-[13px]",
-                    reconcile.ok ? "text-[var(--success)]" : "text-destructive",
-                  )}
+      {/* Account statement (deterministic) */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <SectionLabel>Account statement</SectionLabel>
+          <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <BookOpen className="size-3.5" />
+            {mode === "live" ? "live CLOB" : "paper"}
+          </span>
+        </div>
+        <div className="zg-glass overflow-hidden rounded-xl">
+          <div className="divide-y divide-border/40 px-4">
+            {[
+              ["Deposited", Number(account?.depositedGross ?? 0), "+"],
+              ["Withdrawn", Number(account?.withdrawn ?? 0), "−"],
+              [
+                "Platform fees",
+                Number(snap?.accounting?.platformFees ?? account?.platformFeesPaid ?? 0),
+                "−",
+              ],
+              ["CLOB fees", Number(snap?.accounting?.clobFees ?? 0), "−"],
+              ["Realized P&L", portfolio.realized, "±"],
+              ["Open marks", unrealized, "±"],
+            ].map(([label, v, sign]) => {
+              const n = Number(v);
+              const signed = sign === "±";
+              return (
+                <div
+                  key={String(label)}
+                  className="flex items-center justify-between gap-2 py-2.5"
                 >
-                  {reconcile.ok ? "balanced" : `${reconcile.mismatchCount} mismatches`}
-                </p>
-              </div>
-            </div>
-            <div>
-              <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                PM realized
-              </p>
-              <p className="font-mono text-[13px] tabular-nums text-foreground">
-                {money(Number(reconcile.pmRealizedSum ?? 0))}
-              </p>
-              <p className="font-mono text-[9px] text-muted-foreground">
-                {String(reconcile.pmClosedCount ?? 0)} closed
-              </p>
-            </div>
-            <div>
-              <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                Bot verified
-              </p>
-              <p className="font-mono text-[13px] tabular-nums text-foreground">
-                {money(Number(reconcile.botVerifiedSum ?? 0))}
-              </p>
-              <p className="font-mono text-[9px] text-muted-foreground">matched fills</p>
-            </div>
-            <div>
-              <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                Bot vs PM gap
-              </p>
-              <p
-                className={cn(
-                  "font-mono text-[13px] tabular-nums",
-                  Number(reconcile.botVsPmGap ?? 0) <= 0.5
-                    ? "text-[var(--success)]"
-                    : "text-warning",
-                )}
-              >
-                {money(Number(reconcile.botVsPmGap ?? 0))}
-              </p>
-              <p className="font-mono text-[9px] text-muted-foreground">
-                {String(reconcile.note ?? "synced")}
-              </p>
+                  <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                    {String(label)}
+                  </dt>
+                  <dd
+                    className={cn(
+                      "font-mono text-[13px] tabular-nums",
+                      signed
+                        ? n >= 0
+                          ? "text-[var(--success)]"
+                          : "text-destructive"
+                        : "text-foreground",
+                    )}
+                  >
+                    {sign === "+" ? "+" : sign === "−" ? "−" : n >= 0 ? "+" : ""}
+                    {money(Math.abs(n))}
+                  </dd>
+                </div>
+              );
+            })}
+            <div className="flex items-center justify-between gap-2 py-3">
+              <dt className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
+                Balance
+              </dt>
+              <dd className="font-display text-[18px] font-[600] tabular-nums text-foreground">
+                {money(mode === "live" ? portfolio.liveCash : Number(account?.cash ?? 0))}
+              </dd>
             </div>
           </div>
-        </section>
-      ) : null}
-
-      {/* Mismatches */}
-      {mismatches.length > 0 ? (
-        <section className="space-y-2">
-          <SectionLabel>Mismatches ({mismatches.length})</SectionLabel>
-          <div className="space-y-2">
-            {mismatches.map((m, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col gap-2 rounded-xl border border-warning/25 bg-warning/5 px-4 py-3 sm:flex-row sm:items-center"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-mono text-[11px] text-foreground">
-                    {String(m.slug)} · <span className="uppercase">{String(m.outcome)}</span>
-                  </p>
-                  <p className="mt-0.5 font-sans text-[11px] text-muted-foreground">{String(m.note)}</p>
-                </div>
-                <div className="flex items-center gap-3 font-mono text-[11px] tabular-nums">
-                  <span className="text-[var(--success)]">PM {money(Number(m.pmPnl ?? 0))}</span>
-                  <span className="text-muted-foreground">vs</span>
-                  <span className="text-destructive">bot {money(Number(m.botPnl ?? 0))}</span>
-                  <span className="text-warning">Δ {money(Number(m.gap ?? 0))}</span>
-                </div>
-              </motion.div>
-            ))}
+          <div className="border-t border-border/40 bg-background/40 px-4 py-2.5">
+            <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground/70">
+              Balance = deposited − withdrawn − fees + realized P&L, marked live from the execution account.
+            </p>
           </div>
-        </section>
-      ) : null}
+        </div>
+      </section>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
