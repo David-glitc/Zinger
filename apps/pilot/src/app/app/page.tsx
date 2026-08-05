@@ -15,6 +15,7 @@ import { GeoblockAlert } from "@/components/dashboard/geoblock-status";
 import { PulseDot } from "@/components/animations/pulse-dot";
 import { MarketStrip } from "@/components/charts/market-strip";
 import { SharePnl } from "@/components/dashboard/share-pnl";
+import { FirstRunBanner } from "@/components/onboarding/first-run-banner";
 import { Button } from "@/components/ui/button";
 
 export default function CommandPage() {
@@ -61,6 +62,8 @@ export default function CommandPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
       <GeoblockAlert />
+
+      <FirstRunBanner visible cash={cash} mode={mode} />
 
       <PageHeading
         eyebrow="Command"
@@ -110,9 +113,15 @@ export default function CommandPage() {
       />
       {!sessionRunning && !canStart ? (
         <p className="mt-2 font-mono text-[11px] text-destructive">
-          {mode === "paper"
-            ? "Deposit at least $50 paper credit before starting."
-            : "Fund pUSD or sync the live CLOB before starting."}
+          {mode === "paper" ? (
+            <>Deposit at least $50 paper credit before starting.{" "}
+              <Link href="/app/fund" className="underline hover:text-destructive/80">Fund now →</Link>
+            </>
+          ) : (
+            <>Fund pUSD or sync the live CLOB before starting.{" "}
+              <Link href="/app/fund" className="underline hover:text-destructive/80">Fund now →</Link>
+            </>
+          )}
         </p>
       ) : null}
 

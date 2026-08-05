@@ -17,6 +17,7 @@ import {
   LogOut,
   Menu,
   X,
+  ExternalLink,
 } from "lucide-react";
 
 const NAV = [
@@ -129,6 +130,34 @@ function SidebarContent({
           <span className="ml-2 font-mono text-[10px] text-muted-foreground">Polygon</span>
         </div>
 
+        <div className="mt-2.5 flex items-center justify-center gap-3">
+          <a
+            href="https://x.com/usezinger"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors"
+            title="X / Twitter"
+          >
+            X
+          </a>
+          <a
+            href="https://usezinger.xyz/#faq"
+            className="font-mono text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors"
+            title="FAQ"
+          >
+            FAQ
+          </a>
+          <a
+            href="https://github.com/David-glitc/Zinger"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors"
+            title="GitHub"
+          >
+            <ExternalLink className="size-3" />
+          </a>
+        </div>
+
         <div className="mt-2.5 [&_button]:w-full">
           <WalletConnectCompact />
         </div>
@@ -239,6 +268,13 @@ export function AppSidebar({ mode, onModeChange, onDisconnect, busy }: AppSideba
                   <span>Disconnect</span>
                 </button>
               </div>
+            </div>
+            <div className="flex items-center justify-center gap-4">
+              <a href="https://x.com/usezinger" target="_blank" rel="noopener noreferrer" className="font-mono text-[10px] text-muted-foreground/70 hover:text-foreground">X</a>
+              <a href="https://usezinger.xyz/#faq" className="font-mono text-[10px] text-muted-foreground/70 hover:text-foreground">FAQ</a>
+              <a href="https://github.com/David-glitc/Zinger" target="_blank" rel="noopener noreferrer" className="text-muted-foreground/70 hover:text-foreground">
+                <ExternalLink className="size-3" />
+              </a>
             </div>
           </div>
         </div>
