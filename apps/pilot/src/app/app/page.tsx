@@ -14,6 +14,7 @@ import { LiveTradePanel } from "@/components/dashboard/live-trade-panel";
 import { GeoblockAlert } from "@/components/dashboard/geoblock-status";
 import { PulseDot } from "@/components/animations/pulse-dot";
 import { MarketStrip } from "@/components/charts/market-strip";
+import { SharePnl } from "@/components/dashboard/share-pnl";
 import { Button } from "@/components/ui/button";
 
 export default function CommandPage() {
@@ -156,6 +157,15 @@ export default function CommandPage() {
         />
       </div>
 
+      {/* Quick share */}
+      <div className="flex items-center justify-end">
+        <SharePnl
+          pnl={realized}
+          asset={mode === "live" ? "LIVE" : "PAPER"}
+          slug="portfolio-snapshot"
+        />
+      </div>
+
       {/* Live book strip */}
       {mode === "live" ? (
         <div className="zg-glass flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-4 py-3">
@@ -259,7 +269,7 @@ export default function CommandPage() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <SectionLabel>
-                Open book ({opens.length})
+                Open book <span className="ml-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground/60">({mode})</span> ({opens.length})
               </SectionLabel>
               <Link
                 href="/app/book"
@@ -323,12 +333,17 @@ export default function CommandPage() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <SectionLabel>Vault</SectionLabel>
-              <Link href="/app/vault" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
-                Inspect <ArrowUpRight className="size-3" />
-              </Link>
+              <div className="flex items-center gap-2">
+                <span className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {mode}
+                </span>
+                <Link href="/app/vault" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
+                  Inspect <ArrowUpRight className="size-3" />
+                </Link>
+              </div>
             </div>
-            <GlassPanel label="EXECUTION ACCOUNT">
-              <dl className="space-y-2.5">
+            <GlassPanel label={`EXECUTION ACCOUNT · ${mode.toUpperCase()}`}>
+              <dl className="space-y-2.5 px-4 py-3">
                 {(
                   [
                     ["Session", account?.session?.running ? `RUNNING #${account.session.id}` : "idle"],
@@ -355,12 +370,17 @@ export default function CommandPage() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <SectionLabel>Bands</SectionLabel>
-              <Link href="/app/settings" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
-                Tune <ArrowUpRight className="size-3" />
-              </Link>
+              <div className="flex items-center gap-2">
+                <span className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {mode}
+                </span>
+                <Link href="/app/settings" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
+                  Tune <ArrowUpRight className="size-3" />
+                </Link>
+              </div>
             </div>
-            <GlassPanel label="ENTRY FILTERS">
-              <dl className="space-y-2.5">
+            <GlassPanel label={`ENTRY FILTERS · ${mode.toUpperCase()}`}>
+              <dl className="space-y-2.5 px-4 py-3">
                 {(
                   [
                     ["Max position", `${Number(account?.rules?.maxPositionPct ?? 10)}%`],

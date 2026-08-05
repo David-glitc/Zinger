@@ -23,7 +23,7 @@ export default function Waitlist() {
           </h2>
           <p className="mx-auto mt-4 max-w-lg font-serif text-[16px] leading-relaxed text-muted-foreground">
             The live vault opens to a small group first. Drop your email and X
-            handle and we&apos;ll send your alpha invite the day it does.
+            handle and we&apos;ll send your access code the day it does.
           </p>
         </motion.div>
 

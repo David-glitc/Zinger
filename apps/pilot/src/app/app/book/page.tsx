@@ -26,6 +26,7 @@ import { OpenTable } from "@/components/dashboard/positions-table";
 import { AccountPanel } from "@/components/dashboard/account-panel";
 import { IntelligencePanel } from "@/components/dashboard/intelligence-panel";
 import { GeoblockAlert } from "@/components/dashboard/geoblock-status";
+import { SharePnl } from "@/components/dashboard/share-pnl";
 
 function relTime(ts: number | null | undefined) {
   if (!ts) return "—";
@@ -425,6 +426,15 @@ export default function BookPage() {
                             >
                               {money(pnl)}
                             </span>
+                            <SharePnl
+                              size="sm"
+                              pnl={pnl}
+                              entryPrice={String(t.entryPrice ?? t.avgPrice ?? "") || undefined}
+                              exitPrice={isUp ? 1 : 0}
+                              outcome={tradeOutcome(t)}
+                              asset={String(t.asset || t.symbol || "")}
+                              slug={String(t.slug || "")}
+                            />
                             <ChevronDown
                               className={cn(
                                 "size-3 shrink-0 text-muted-foreground transition-transform",

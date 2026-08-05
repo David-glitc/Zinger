@@ -10,6 +10,7 @@ import { useClobFeed } from "@/hooks/use-clob-feed";
 import { Sparkline } from "@/components/charts/sparkline";
 import { CountUp } from "@/components/animations/count-up";
 import { PulseDot } from "@/components/animations/pulse-dot";
+import { SharePnl } from "@/components/dashboard/share-pnl";
 
 interface LiveTradePanelProps {
   open: Record<string, unknown> | null;
@@ -109,6 +110,14 @@ export function LiveTradePanel({ open }: LiveTradePanelProps) {
               <PulseDot active={feed.connected} />
               {feed.connected ? "feed live" : "reconnecting…"}
             </span>
+            <SharePnl
+              size="sm"
+              pnl={livePnl ?? Number(open?.pnl ?? 0)}
+              entryPrice={entry}
+              outcome={String(open?.outcome || "")}
+              asset={String(open?.asset || open?.symbol || "")}
+              slug={String(open?.slug || "")}
+            />
           </div>
           <p className="mt-2 truncate font-display text-[16px] font-[500] tracking-tight text-foreground">
             {String(open?.asset || open?.symbol || "?").toUpperCase()}
