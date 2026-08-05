@@ -11,7 +11,7 @@ export function usePilotSnapshot(address?: string | null, enabled = true) {
     queryFn: () => pilotService.getSnapshot(address),
     enabled: enabled && !!address,
     refetchInterval: enabled && address ? 2_500 : false,
-    staleTime: 1_000,
+    staleTime: 500,
   });
 }
 

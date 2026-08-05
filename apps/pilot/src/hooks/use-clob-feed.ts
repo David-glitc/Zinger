@@ -12,25 +12,30 @@ export interface ClobFeedState {
   updatedAt: number | null;
 }
 
-/**
- * Live market data straight from the Polymarket CLOB websocket.
- * Subscribes to the `market/{conditionId}` channel and surfaces the
- * last trade price / best bid / best ask for a specific token id.
- * Auto-reconnects with capped exponential backoff.
- */
+const INITIAL_STATE: ClobFeedState = {
+  lastPrice: null,
+  bestBid: null,
+  bestAsk: null,
+  connected: false,
+  updatedAt: null,
+};
+
+function backoff(attempts: number) {
+  return Math.min(15_000, 800 * 2 ** Math.min(attempts, 5));
+}
+
 export function useClobFeed(conditionId?: string | null, tokenId?: string | null) {
-  const [state, setState] = useState<ClobFeedState>({
-    lastPrice: null,
-    bestBid: null,
-    bestAsk: null,
-    connected: false,
-    updatedAt: null,
-  });
+  const [state, setState] = useState<ClobFeedState>(INITIAL_STATE);
   const tokenRef = useRef(tokenId);
   tokenRef.current = tokenId;
 
   useEffect(() => {
-    if (!conditionId) return;
+    if (!conditionId) {
+      setState(INITIAL_STATE);
+      return;
+    }
+
+    setState(INITIAL_STATE);
 
     let ws: WebSocket | null = null;
     let disposed = false;
@@ -42,6 +47,7 @@ export function useClobFeed(conditionId?: string | null, tokenId?: string | null
       try {
         ws = new WebSocket(`${WS_URL}/${conditionId}`);
       } catch {
+        scheduleRetry();
         return;
       }
 
@@ -78,11 +84,15 @@ export function useClobFeed(conditionId?: string | null, tokenId?: string | null
       };
 
       ws.onclose = () => {
-        setState((s) => ({ ...s, connected: false }));
+        setState((s) => ({
+          lastPrice: null,
+          bestBid: null,
+          bestAsk: null,
+          connected: false,
+          updatedAt: s.updatedAt,
+        }));
         if (disposed) return;
-        attempts += 1;
-        const delay = Math.min(15_000, 800 * 2 ** Math.min(attempts, 5));
-        retryTimer = setTimeout(connect, delay);
+        scheduleRetry();
       };
 
       ws.onerror = () => {
@@ -92,6 +102,11 @@ export function useClobFeed(conditionId?: string | null, tokenId?: string | null
           /* ignore */
         }
       };
+    };
+
+    const scheduleRetry = () => {
+      attempts += 1;
+      retryTimer = setTimeout(connect, backoff(attempts));
     };
 
     connect();
@@ -105,7 +120,7 @@ export function useClobFeed(conditionId?: string | null, tokenId?: string | null
         /* ignore */
       }
     };
-  }, [conditionId]);
+  }, [conditionId, tokenId]);
 
   return state;
 }

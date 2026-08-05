@@ -11,8 +11,10 @@ export class ApiError extends Error {
 }
 
 export async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const isMutation = init?.method && init.method !== "GET";
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
+    cache: isMutation ? undefined : "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers || {}),

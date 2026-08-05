@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { ArrowUpRight } from "lucide-react";
 import { useMarketChart } from "@/hooks/use-market-chart";
+import { useClobFeed } from "@/hooks/use-clob-feed";
 import { MarketChartLazy } from "@/components/charts/market-chart-lazy";
 
 interface MarketStripProps {
@@ -46,12 +47,15 @@ function MarketStripCard({
   const duration = String(market.duration || "");
   const { detail, history, historyLoading } = useMarketChart(slug, duration);
 
+  const conditionId = detail?.conditionId ? String(detail.conditionId) : null;
+  const tokenId = detail?.clobTokenIds?.[0] ? String(detail.clobTokenIds[0]) : null;
+  const feed = useClobFeed(conditionId, tokenId);
+
   const prices = (market.prices ?? {}) as Record<string, unknown>;
-  const up = Number(prices.up ?? 0);
+  const up = feed.lastPrice ?? Number(prices.up ?? 0);
   const dir = String(open?.outcome || "").toLowerCase();
   const entry = open ? Number(open.entryPrice ?? null) : null;
   const target = open && dir ? (dir === "up" ? 1 : 0) : null;
-  const livePrice = up > 0 ? up : null;
 
   return (
     <Link
@@ -73,6 +77,11 @@ function MarketStripCard({
             <span className="rounded border border-border/60 px-1 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
               {duration}
             </span>
+            {feed.connected ? (
+              <span className="size-1.5 rounded-full bg-[var(--success)]" title="live feed" />
+            ) : feed.lastPrice != null ? (
+              <span className="size-1.5 rounded-full bg-warning" title="feed reconnecting" />
+            ) : null}
           </div>
           <span
             className={cn(
@@ -93,7 +102,7 @@ function MarketStripCard({
               history={history}
               height={112}
               compact
-              livePrice={livePrice}
+              livePrice={up}
               entryPrice={entry}
               target={target}
               signal={signal}

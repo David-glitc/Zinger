@@ -13,8 +13,8 @@ export function useMarketDetail(slug?: string | null) {
     queryKey: ["market-detail", slug],
     queryFn: () => getMarketDetail(slug as string),
     enabled: !!slug,
-    staleTime: 60_000,
-    refetchInterval: 120_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
 }
 
@@ -24,8 +24,8 @@ export function usePriceHistory(tokenId?: string | null, duration?: string | nul
     queryKey: ["price-history", tokenId, interval, fidelity],
     queryFn: () => getPriceHistory(tokenId as string, interval, fidelity),
     enabled: !!tokenId,
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: 4_000,
+    refetchInterval: 8_000,
     select: (data) => data.history as PricePoint[],
   });
 }
