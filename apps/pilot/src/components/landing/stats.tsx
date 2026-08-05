@@ -3,7 +3,7 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
-function CountUp({ end, suffix = "" }: { end: number; suffix?: string }) {
+function CountUp({ end, suffix = "", prefix = "" }: { end: number; suffix?: string; prefix?: string }) {
   const [v, setV] = useState(0);
   useEffect(() => {
     let raf: number;
@@ -17,22 +17,49 @@ function CountUp({ end, suffix = "" }: { end: number; suffix?: string }) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [end]);
-  return <>{v.toLocaleString()}{suffix}</>;
+  return <>{prefix}{v.toLocaleString()}{suffix}</>;
 }
 
-const STATS = [
-  { value: 5000, label: "Trades executed", suffix: "+" },
-  { value: 30, label: "Avg win rate", suffix: "%" },
-  { value: 100, label: "Paper bankroll", suffix: "$" },
-  { value: 5, label: "Window durations", suffix: "m+" },
-];
+interface StatsData {
+  trades: number;
+  winRate: number | null;
+  equity: number;
+  openCount: number;
+}
 
 export default function Stats() {
+  const [data, setData] = useState<StatsData | null>(null);
+
+  useEffect(() => {
+    fetch("/api/intelligence")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.paper) {
+          const wins = d.paper.wins || 0;
+          const losses = d.paper.losses || 0;
+          setData({
+            trades: wins + losses,
+            winRate: d.paper.winRate,
+            equity: d.paper.equity,
+            openCount: d.paper.openCount,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const stats = [
+    { value: data?.trades ?? 0, label: "Trades executed", suffix: "+" },
+    { value: data?.winRate != null ? Math.round(data.winRate * 100) : 0, label: "Avg win rate", suffix: "%" },
+    { value: Math.round(data?.equity ?? 0), label: "Paper equity", prefix: "$" },
+    { value: 5, label: "Window durations", suffix: "m+" },
+  ];
+
   return (
     <section className="border-t border-border bg-muted py-20 sm:py-24">
       <div className="mx-auto max-w-6xl px-6 sm:px-8">
         <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
-          {STATS.map((s, i) => (
+          {stats.map((s, i) => (
             <motion.div
               key={s.label}
               initial={{ opacity: 0, y: 16 }}
@@ -42,7 +69,7 @@ export default function Stats() {
               className="text-center"
             >
               <p className="font-display text-[clamp(2rem,5vw,3.25rem)] leading-none tracking-[-0.03em] text-foreground">
-                <CountUp end={s.value} suffix={s.suffix} />
+                <CountUp end={s.value} suffix={s.suffix} prefix={s.prefix} />
               </p>
               <p className="mt-2 font-serif text-base text-muted-foreground">
                 {s.label}

@@ -1,19 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 
 function DashboardCta({ size = "lg" }: { size?: "default" | "lg" }) {
-  const router = useRouter();
   return (
     <Button
       size={size}
+      asChild
       className="zg-volt-btn rounded-xl px-8 text-white"
-      onClick={() => router.push("/app")}
     >
-      Launch app
+      <Link href="/app">Launch app</Link>
     </Button>
   );
 }
