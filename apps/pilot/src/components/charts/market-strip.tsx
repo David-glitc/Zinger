@@ -56,7 +56,7 @@ function MarketStripCard({
         animate={{ opacity: 1, y: 0 }}
         whileHover={{ y: -2 }}
         transition={{ duration: 0.2 }}
-        className="zg-card group overflow-hidden"
+        className="zg-card-premium group relative overflow-hidden"
       >
         <div className="flex items-center justify-between gap-2 px-3 py-2.5">
           <div className="flex items-center gap-1.5">
@@ -69,31 +69,35 @@ function MarketStripCard({
           </div>
           <div className="flex items-center gap-1.5">
             {feed.connected ? (
-              <span className="size-1.5 rounded-full bg-[var(--up)] shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
+              <span className="size-1.5 rounded-full bg-[var(--up)] shadow-[0_0_8px_var(--up)]" />
             ) : feed.lastPrice != null ? (
               <span className="size-1.5 rounded-full bg-[var(--warning)]" />
             ) : null}
             <motion.span
               key={up.toFixed(3)}
-              className={cn("font-mono text-[12px] font-semibold tabular-nums", up >= 0.5 ? "text-[var(--up)]" : "text-[var(--down)]")}
+              className={cn(
+                "font-mono text-[13px] font-semibold tabular-nums",
+                up >= 0.5 ? "text-[var(--up)]" : "text-[var(--down)]",
+              )}
             >
               {up.toFixed(3)}
             </motion.span>
           </div>
         </div>
 
-        <div className="mx-3 h-0.5 rounded-full bg-muted">
+        <div className="mx-3 h-0.5 rounded-full bg-muted overflow-hidden">
           <motion.div
-            className={cn("h-full rounded-full", up >= 0.5 ? "bg-[var(--up)]" : "bg-[var(--down)]")}
+            className={cn(
+              "h-full rounded-full",
+              up >= 0.5 ? "bg-[var(--up)] shadow-[0_0_8px_var(--up)]" : "bg-[var(--down)]",
+            )}
             style={{ width: `${up * 100}%` }}
           />
         </div>
 
         <div className="h-[100px] px-1 pb-1">
           {historyLoading ? (
-            <div className="flex h-full items-center justify-center font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground/40">
-              loading
-            </div>
+            <div className="zg-shimmer h-full w-full rounded" />
           ) : (
             <MarketChartLazy history={history} height={96} compact livePrice={up} signal={signal} />
           )}

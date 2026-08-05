@@ -360,3 +360,125 @@
 }
 .zg-volt-btn:active:not(:disabled) { transform: translateY(0); }
 .zg-volt-btn:disabled { opacity: 0.45; filter: grayscale(0.5); }
+
+/* ——— Premium surfaces ——— */
+
+/* Card with subtle inner glow + hover lift */
+.zg-card-premium {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 4%, transparent),
+    0 8px 32px -16px color-mix(in srgb, var(--foreground) 20%, transparent);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+.zg-card-premium:hover {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--primary) 8%, transparent),
+    0 12px 40px -16px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+/* PnL-tinted card (green/red glow on border) */
+.zg-card-pnl-up {
+  border-color: color-mix(in srgb, var(--up) 22%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--up) 5%, transparent),
+    0 0 28px -12px color-mix(in srgb, var(--up) 18%, transparent);
+}
+.zg-card-pnl-down {
+  border-color: color-mix(in srgb, var(--down) 22%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--down) 5%, transparent),
+    0 0 28px -12px color-mix(in srgb, var(--down) 18%, transparent);
+}
+
+/* Accent glow card (for primary KPIs) */
+.zg-card-glow {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+  border-radius: var(--radius-xl);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--primary) 5%, transparent),
+    0 0 32px -10px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+/* Animated background grid (subtle drift) */
+.zg-bg-animated {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--border) 60%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 60%, transparent) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: 0 0;
+}
+
+/* Shimmer loading skeleton */
+.zg-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    color-mix(in srgb, var(--foreground) 6%, var(--muted)) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: zg-shimmer 1.8s ease-in-out infinite;
+}
+@keyframes zg-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Glow text for PnL numbers */
+.zg-glow-up {
+  color: var(--up);
+  text-shadow: 0 0 16px color-mix(in srgb, var(--up) 40%, transparent);
+}
+.zg-glow-down {
+  color: var(--down);
+  text-shadow: 0 0 16px color-mix(in srgb, var(--down) 40%, transparent);
+}
+
+/* Live signalLine pulse — thin gradient bar at top of live elements */
+.zg-signal-line {
+  position: relative;
+}
+.zg-signal-line::before {
+  content: "";
+  position: absolute;
+  inset-x: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--primary) 50%, transparent), transparent);
+  animation: zg-signal-sweep 2.5s ease-in-out infinite;
+}
+.zg-signal-line-up::before {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--up) 50%, transparent), transparent);
+}
+.zg-signal-line-down::before {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--down) 50%, transparent), transparent);
+}
+@keyframes zg-signal-sweep {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* Subtle scan-line effect for last updated timestamp container */
+.zg-scan-line {
+  position: relative;
+  overflow: hidden;
+}
+.zg-scan-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--primary) 3%, transparent) 50%, transparent 100%);
+  animation: zg-scan 3s linear infinite;
+  pointer-events: none;
+}
+@keyframes zg-scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}

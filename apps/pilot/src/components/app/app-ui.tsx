@@ -59,10 +59,14 @@ export function Stat({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.04, ease: [0.25, 0.1, 0.25, 1] }}
       className={cn(
-        "rounded-xl border p-3.5 sm:p-4",
+        "relative overflow-hidden rounded-xl border p-3.5 sm:p-4",
         accent
-          ? "border-primary/20 bg-primary/[0.04]"
-          : "border-border bg-surface",
+          ? "zg-card-glow"
+          : tone === "up"
+            ? "zg-card-premium zg-card-pnl-up"
+            : tone === "dn"
+              ? "zg-card-premium zg-card-pnl-down"
+              : "zg-card-premium",
       )}
     >
       <div className="flex items-center justify-between gap-2">
@@ -74,9 +78,10 @@ export function Stat({
       <div
         className={cn(
           "mt-1 font-mono text-xl font-semibold tabular-nums tracking-tight sm:text-2xl",
-          tone === "up" && "text-[var(--up)]",
-          tone === "dn" && "text-[var(--down)]",
-          tone === "neutral" && "text-foreground",
+          tone === "up" && "zg-glow-up",
+          tone === "dn" && "zg-glow-down",
+          tone === "neutral" && !accent && "text-foreground",
+          accent && "text-primary",
         )}
       >
         {num != null ? (
@@ -104,7 +109,7 @@ export function GlassPanel({
   right?: React.ReactNode;
 }) {
   return (
-    <div className={cn("zg-card", className)}>
+    <div className={cn("zg-card-premium", className)}>
       {label ? (
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
           <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -121,7 +126,7 @@ export function GlassPanel({
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <h2 className="flex items-center gap-2 font-display text-[13px] font-medium tracking-tight text-foreground">
-      <span className="size-1.5 rounded-full bg-primary" />
+      <span className="size-1.5 rounded-full bg-primary shadow-[0_0_6px_rgba(59,130,246,0.6)]" />
       {children}
     </h2>
   );

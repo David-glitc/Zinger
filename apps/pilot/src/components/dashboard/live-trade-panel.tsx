@@ -58,8 +58,8 @@ export function LiveTradePanel({ open }: { open: Record<string, unknown> | null 
 
   if (!open) {
     return (
-      <div className="zg-card flex min-h-44 flex-col items-center justify-center gap-3 p-6 text-center">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10">
+      <div className="zg-card-premium flex min-h-44 flex-col items-center justify-center gap-3 p-6 text-center">
+        <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 shadow-[0_0_20px_-6px_var(--primary)]">
           <Target className="size-4 text-primary/60" />
         </div>
         <div>
@@ -78,18 +78,9 @@ export function LiveTradePanel({ open }: { open: Record<string, unknown> | null 
       animate={{ opacity: 1, y: 0 }}
       className={cn(
         "relative overflow-hidden rounded-xl border p-5",
-        positive
-          ? "border-[var(--up)]/20 bg-[var(--up)]/[0.03]"
-          : "border-[var(--down)]/20 bg-[var(--down)]/[0.03]",
+        positive ? "zg-card-premium zg-card-pnl-up zg-signal-line-up" : "zg-card-premium zg-card-pnl-down zg-signal-line-down",
       )}
     >
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 h-px",
-          positive ? "bg-gradient-to-r from-transparent via-[var(--up)]/30 to-transparent" : "bg-gradient-to-r from-transparent via-[var(--down)]/30 to-transparent",
-        )}
-      />
-
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -133,8 +124,8 @@ export function LiveTradePanel({ open }: { open: Record<string, unknown> | null 
           </p>
           <p
             className={cn(
-              "flex items-center justify-end gap-1 font-display text-[24px] font-semibold tabular-nums tracking-tight",
-              positive ? "text-[var(--up)]" : "text-[var(--down)]",
+              "flex items-center justify-end gap-1 font-display text-[26px] font-semibold tabular-nums tracking-tight",
+              positive ? "zg-glow-up" : "zg-glow-down",
             )}
           >
             {livePnl != null ? (

@@ -27,19 +27,21 @@ function SignalRow({
   const confPct = Math.min(100, Math.max(0, conf * 100));
   const fillColor =
     conf >= 0.6 ? "bg-[var(--up)]" : conf >= 0.35 ? "bg-[var(--warning)]" : "bg-[var(--down)]/70";
+  const glowClass =
+    conf >= 0.6 ? "shadow-[0_0_12px_-2px_var(--up)]" : conf >= 0.35 ? "shadow-[0_0_12px_-2px_var(--warning)]" : "";
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: delay ?? 0, ease: [0.25, 0.1, 0.25, 1] }}
-      className="flex items-center gap-3 rounded-lg"
+      className="flex items-center gap-3"
     >
       <div
         className={cn(
           "flex size-9 shrink-0 items-center justify-center rounded-lg",
-          isUp && "bg-[var(--up)]/10 text-[var(--up)]",
-          isDown && "bg-[var(--down)]/10 text-[var(--down)]",
+          isUp && "bg-[var(--up)]/10 text-[var(--up)] shadow-[0_0_16px_-6px_var(--up)]",
+          isDown && "bg-[var(--down)]/10 text-[var(--down)] shadow-[0_0_16px_-6px_var(--down)]",
           !isUp && !isDown && "bg-muted text-muted-foreground",
         )}
       >
@@ -66,8 +68,8 @@ function SignalRow({
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${confPct}%` }}
-            transition={{ duration: 0.5, delay: (delay ?? 0) + 0.15, ease: "easeOut" }}
-            className={cn("zg-probability-bar-fill", fillColor)}
+            transition={{ duration: 0.6, delay: (delay ?? 0) + 0.15, ease: "easeOut" }}
+            className={cn("zg-probability-bar-fill", fillColor, glowClass)}
           />
         </div>
         <div className="mt-1 flex justify-between">
@@ -94,14 +96,17 @@ export function SignalPanel({
 }) {
   const hasSignal = !!btc || !!eth;
   return (
-    <div className="space-y-3 rounded-xl border border-border/60 bg-surface p-4">
+    <div className={cn("zg-card-premium space-y-3 p-4", hasSignal && "zg-signal-line")}>
       <div className="mb-1 flex items-center gap-2">
         <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-          <span className={cn("zg-live-dot", hasSignal ? "" : "!bg-muted-foreground/40")} style={!hasSignal ? { animation: "none" } : undefined} />
+          <span
+            className={cn("size-1.5 rounded-full", hasSignal ? "bg-[var(--up)] shadow-[0_0_6px_var(--up)]" : "bg-muted-foreground/40")}
+            style={!hasSignal ? { animation: "none" } : undefined}
+          />
           Signals
         </span>
         {ageMs != null ? (
-          <span className="ml-auto font-mono text-[9px] text-muted-foreground/50">
+          <span className="ml-auto font-mono text-[9px] tabular-nums text-muted-foreground/50">
             {Math.round(ageMs / 1000)}s
           </span>
         ) : null}

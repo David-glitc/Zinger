@@ -133,8 +133,8 @@ function SidebarContent({
       </div>
 
       <div className="shrink-0 border-t border-border/70 px-3 py-3">
-        <div className="flex items-center justify-center rounded-lg border border-border/60 bg-muted/40 px-3 py-1.5">
-          <span className="size-1.5 rounded-full bg-[var(--success)]" />
+        <div className="flex items-center justify-center rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5">
+          <span className="size-1.5 rounded-full bg-[var(--success)] shadow-[0_0_6px_var(--success)]" />
           <span className="ml-2 font-mono text-[10px] text-muted-foreground">Polygon</span>
         </div>
 

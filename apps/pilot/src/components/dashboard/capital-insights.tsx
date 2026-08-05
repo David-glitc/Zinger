@@ -72,7 +72,7 @@ export function CapitalInsights({ edgeGate, config, cash }: CapitalInsightsProps
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="rounded-xl border border-border bg-background p-4 sm:rounded-xl sm:p-5"
+      className="zg-card-premium p-4 sm:p-5"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
