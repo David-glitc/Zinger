@@ -19,15 +19,15 @@ export function PageHeading({
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         {eyebrow ? (
-          <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/80">
+          <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="font-display text-[clamp(1.6rem,4vw,2.4rem)] font-[500] leading-[1.05] tracking-[-0.03em]">
-          <span className="zg-chrome-text">{title}</span>
+        <h1 className="font-display text-[clamp(1.5rem,4vw,2.25rem)] font-medium leading-[1.05] tracking-[-0.03em] text-foreground">
+          {title}
         </h1>
         {subtitle ? (
-          <p className="mt-2 max-w-xl font-sans text-[13px] leading-relaxed text-muted-foreground sm:text-sm">
+          <p className="mt-1.5 max-w-xl font-sans text-[13px] leading-relaxed text-muted-foreground">
             {subtitle}
           </p>
         ) : null}
@@ -57,25 +57,26 @@ export function Stat({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay: index * 0.05, ease: [0.25, 0.1, 0.25, 1] }}
+      transition={{ duration: 0.3, delay: index * 0.04, ease: [0.25, 0.1, 0.25, 1] }}
       className={cn(
-        "rounded-xl border border-border/60 bg-background/60 p-3.5 sm:p-4",
-        accent && "border-primary/25",
+        "rounded-xl border p-3.5 sm:p-4",
+        accent
+          ? "border-primary/20 bg-primary/[0.04]"
+          : "border-border bg-surface",
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground/80">
+        <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
           {label}
         </span>
-        {accent && <span className="zg-live-dot" />}
+        {accent ? <span className="zg-live-dot" /> : null}
       </div>
       <div
         className={cn(
-          "mt-1.5 font-mono text-xl font-semibold tabular-nums tracking-tight sm:text-2xl",
-          tone === "up" && "text-[var(--success)]",
-          tone === "dn" && "text-[var(--error)]",
-          accent && "text-primary",
-          tone === "neutral" && !accent && "text-foreground",
+          "mt-1 font-mono text-xl font-semibold tabular-nums tracking-tight sm:text-2xl",
+          tone === "up" && "text-[var(--up)]",
+          tone === "dn" && "text-[var(--down)]",
+          tone === "neutral" && "text-foreground",
         )}
       >
         {num != null ? (
@@ -85,7 +86,7 @@ export function Stat({
         )}
       </div>
       {sub ? (
-        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/70">{sub}</p>
+        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{sub}</p>
       ) : null}
     </motion.div>
   );
@@ -103,9 +104,9 @@ export function GlassPanel({
   right?: React.ReactNode;
 }) {
   return (
-    <div className={cn("rounded-xl border border-border/60 bg-background/60", className)}>
+    <div className={cn("zg-card", className)}>
       {label ? (
-        <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-2">
+        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
           <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
             {label}
           </span>
@@ -119,8 +120,8 @@ export function GlassPanel({
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="flex items-center gap-2 font-display text-[14px] font-medium tracking-tight text-foreground">
-      <span className="size-1 rounded-full bg-primary" />
+    <h2 className="flex items-center gap-2 font-display text-[13px] font-medium tracking-tight text-foreground">
+      <span className="size-1.5 rounded-full bg-primary" />
       {children}
     </h2>
   );

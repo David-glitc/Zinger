@@ -2,97 +2,87 @@
 @import "tw-animate-css";
 
 /* ————————————————————————————————————————————————————————————————
-   ZINGER · BLUE / MONOCHROME design language
-   Simple two-tone: white in light, black in dark. A single blue
-   signature accent, emerald/rose for up/down ticks, amber warnings.
+   ZINGER · DARK-FIRST TRADING DASHBOARD
+   Polymarket-inspired. Subtle grid. Accent glows. Live pulse.
    ———————————————————————————————————————————————————————————————— */
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --radius: 0.5rem;
-
-  --background: #ffffff;
-  --foreground: #0a0a0a;
-  --card: #ffffff;
-  --card-foreground: #0a0a0a;
-  --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
-  --primary: #2563eb;
+  --background: #0a0a0b;
+  --foreground: #f5f5f6;
+  --card: #0f0f11;
+  --card-foreground: #f5f5f6;
+  --popover: #141417;
+  --popover-foreground: #f5f5f6;
+  --primary: #3b82f6;
   --primary-foreground: #ffffff;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #0a0a0a;
-  --muted: #f5f5f6;
-  --muted-foreground: #6b7280;
-  --accent: #eff3ff;
-  --accent-foreground: #1e293b;
+  --secondary: #1a1a1e;
+  --secondary-foreground: #f5f5f6;
+  --muted: #141418;
+  --muted-foreground: #8b8fa3;
+  --accent: #19234d;
+  --accent-foreground: #eef2ff;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #e5e7eb;
-  --input: #e5e7eb;
-  --ring: #2563eb;
-  --chart-1: #2563eb;
+  --border: #1e1e24;
+  --input: #1e1e24;
+  --ring: #3b82f6;
+  --chart-1: #3b82f6;
   --chart-2: #10b981;
   --chart-3: #f59e0b;
   --chart-4: #06b6d4;
   --chart-5: #8b5cf6;
-  --sidebar: #fafafa;
-  --sidebar-foreground: #0a0a0a;
-  --sidebar-primary: #2563eb;
+  --sidebar: #09090b;
+  --sidebar-foreground: #f5f5f6;
+  --sidebar-primary: #3b82f6;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eef2ff;
-  --sidebar-accent-foreground: #1e293b;
-  --sidebar-border: #e5e7eb;
-  --sidebar-ring: #2563eb;
-
+  --sidebar-accent: #19234d;
+  --sidebar-accent-foreground: #eef2ff;
+  --sidebar-border: #1e1e24;
+  --sidebar-ring: #3b82f6;
   --success: #10b981;
   --success-foreground: #ffffff;
   --warning: #f59e0b;
   --warning-foreground: #ffffff;
   --error: #ef4444;
   --error-foreground: #ffffff;
+  --up: #10b981;
+  --down: #ef4444;
+  --surface: #0d0d10;
 }
 
-.dark {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #111111;
-  --card-foreground: #fafafa;
-  --popover: #141414;
-  --popover-foreground: #fafafa;
-  --primary: #3b82f6;
+.light {
+  --background: #fafafa;
+  --foreground: #0a0a0b;
+  --card: #ffffff;
+  --card-foreground: #0a0a0b;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0b;
+  --primary: #2563eb;
   --primary-foreground: #ffffff;
-  --secondary: #1c1c1c;
-  --secondary-foreground: #fafafa;
-  --muted: #161616;
-  --muted-foreground: #9ca3af;
-  --accent: #16234d;
-  --accent-foreground: #eef2ff;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: #262626;
-  --input: #262626;
-  --ring: #3b82f6;
-  --chart-1: #3b82f6;
-  --chart-2: #34d399;
-  --chart-3: #fbbf24;
-  --chart-4: #22d3ee;
-  --chart-5: #a78bfa;
-  --sidebar: #0d0d0d;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #3b82f6;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #0a0a0b;
+  --muted: #f0f0f2;
+  --muted-foreground: #71717a;
+  --accent: #eff3ff;
+  --accent-foreground: #1e293b;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #0a0a0b;
+  --sidebar-primary: #2563eb;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #16234d;
-  --sidebar-accent-foreground: #eef2ff;
-  --sidebar-border: #262626;
-  --sidebar-ring: #3b82f6;
-
-  --success: #34d399;
-  --success-foreground: #0a0a0a;
-  --warning: #fbbf24;
-  --warning-foreground: #0a0a0a;
-  --error: #f87171;
-  --error-foreground: #0a0a0a;
+  --sidebar-accent: #eef2ff;
+  --sidebar-accent-foreground: #1e293b;
+  --sidebar-border: #e4e4e7;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --up: #10b981;
+  --down: #ef4444;
+  --surface: #ffffff;
 }
 
 @theme inline {
@@ -148,67 +138,194 @@
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-
-  html {
-    color-scheme: light;
-    scroll-behavior: smooth;
-  }
-
-  html.dark {
-    color-scheme: dark;
-  }
-
+  * { @apply border-border outline-ring/50; }
+  html { color-scheme: dark; scroll-behavior: smooth; }
+  html.light { color-scheme: light; }
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "ss01", "cv01", "cv11";
     text-rendering: optimizeLegibility;
   }
-
-  h1, h2, h3, h4, h5, h6,
-  .font-display {
+  h1, h2, h3, h4, h5, h6, .font-display {
     font-family: var(--font-display), "Space Grotesk", "Inter", system-ui, sans-serif;
     font-weight: 500;
     letter-spacing: -0.02em;
   }
-
-  ::selection {
-    background: color-mix(in srgb, var(--primary) 30%, transparent);
-    color: #fff;
-  }
-
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--border) 90%, transparent);
-    border-radius: 8px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--muted-foreground);
-  }
+  ::selection { background: color-mix(in srgb, var(--primary) 30%, transparent); color: #fff; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
 }
 
-/* ————————————————————————————————————————————————————————————————
-   Signature surfaces & effects
-   ———————————————————————————————————————————————————————————————— */
+/* ——— Dashboard background grid ——— */
+.zg-bg {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: center center;
+}
 
-/* Ambient aurora backdrop for full-screen canvases (landing, auth) */
+/* ——— Trading card (subtle gradient border) ——— */
+.zg-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.zg-card:hover {
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+/* ——— Accent card (for primary KPIs, live trade) ——— */
+.zg-card-accent {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: var(--radius-xl);
+  box-shadow: 0 0 24px -12px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+/* ——— Polymarket-style probability bar ——— */
+.zg-probability-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.zg-probability-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ——— Live pulse ring ——— */
+.zg-live-ring {
+  position: relative;
+}
+.zg-live-ring::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1.5px solid transparent;
+  animation: zg-ring-pulse 2s ease-out infinite;
+}
+.zg-live-ring-green::after { border-color: var(--up); }
+.zg-live-ring-red::after { border-color: var(--down); }
+.zg-live-ring-blue::after { border-color: var(--primary); }
+@keyframes zg-ring-pulse {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+
+/* ——— Live dot ——— */
+.zg-live-dot {
+  display: inline-flex;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 40%, transparent);
+  animation: zg-dot-pulse 1.6s ease-out infinite;
+}
+@keyframes zg-dot-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 40%, transparent); }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ——— Price flash animations ——— */
+.zg-flash-up { animation: zg-flash-up 0.6s ease-out; }
+.zg-flash-down { animation: zg-flash-down 0.6s ease-out; }
+@keyframes zg-flash-up {
+  0% { background: color-mix(in srgb, var(--up) 30%, transparent); }
+  100% { background: transparent; }
+}
+@keyframes zg-flash-down {
+  0% { background: color-mix(in srgb, var(--down) 30%, transparent); }
+  100% { background: transparent; }
+}
+
+/* ——— Gradient text for hero numbers ——— */
+.zg-gradient-text {
+  background: linear-gradient(135deg, var(--foreground) 0%, color-mix(in srgb, var(--foreground) 55%, transparent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ——— Primary button ——— */
+.zg-btn {
+  background: linear-gradient(160deg, #3b82f6, var(--primary), #1d4ed8);
+  color: #fff;
+  border-radius: var(--radius-lg);
+  font-weight: 500;
+  box-shadow: 0 0 0 1px rgba(59,130,246,0.3), 0 0 20px -8px rgba(59,130,246,0.4), inset 0 1px 0 rgba(255,255,255,0.25);
+  transition: all 0.2s ease;
+}
+.zg-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 0 0 1px rgba(59,130,246,0.5), 0 0 28px -8px rgba(59,130,246,0.6), inset 0 1px 0 rgba(255,255,255,0.35);
+  transform: translateY(-1px);
+}
+.zg-btn:active:not(:disabled) { transform: translateY(0); }
+.zg-btn:disabled { opacity: 0.45; filter: grayscale(0.5); }
+
+/* ——— Scroll-fade mask ——— */
+.zg-xfade {
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+}
+
+/* ——— Chips ——— */
+.zg-chip {
+  @apply inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/40 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground;
+}
+
+/* ——— Number input ——— */
+.zg-num {
+  @apply h-9 w-full rounded-lg border border-border bg-background px-3 font-mono text-[13px] tabular-nums text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary/60 focus:ring-2 focus:ring-primary/20;
+}
+
+/* ——— Range slider ——— */
+.zg-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 60%, transparent) var(--zg-pct, 50%), var(--border) var(--zg-pct, 50%));
+  outline: none;
+}
+.zg-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  border: 2px solid color-mix(in srgb, var(--background) 90%, transparent);
+  box-shadow: 0 0 0 1px rgba(59,130,246,0.4), 0 0 10px -2px rgba(59,130,246,0.7);
+  cursor: pointer;
+}
+.zg-range::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  border: 2px solid color-mix(in srgb, var(--background) 90%, transparent);
+  box-shadow: 0 0 0 1px rgba(59,130,246,0.4), 0 0 10px -2px rgba(59,130,246,0.7);
+  cursor: pointer;
+}
+
+/* ——— Aurora (landing page only) ——— */
 .zg-aurora {
   background:
-    radial-gradient(1200px 600px at 18% -8%, rgba(59, 130, 246, 0.08), transparent 60%),
-    radial-gradient(1000px 700px at 88% 0%, rgba(37, 99, 235, 0.06), transparent 55%),
-    radial-gradient(900px 900px at 50% 120%, rgba(96, 165, 250, 0.045), transparent 60%),
+    radial-gradient(1200px 600px at 18% -8%, rgba(59,130,246,0.08), transparent 60%),
+    radial-gradient(1000px 700px at 88% 0%, rgba(37,99,235,0.06), transparent 55%),
+    radial-gradient(900px 900px at 50% 120%, rgba(96,165,250,0.045), transparent 60%),
     var(--background);
 }
 
-/* Fine blueprint grid */
+/* ——— Grid overlay (landing page only) ——— */
 .zg-grid {
   background-image:
     linear-gradient(color-mix(in srgb, var(--foreground) 5%, transparent) 1px, transparent 1px),
@@ -217,199 +334,18 @@
   mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, #000 40%, transparent 100%);
 }
 
-/* Glass panel */
+/* ——— Legacy aliases for brand register (landing, auth gates) ——— */
 .zg-glass {
   background: color-mix(in srgb, var(--card) 55%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   backdrop-filter: blur(22px) saturate(1.35);
   -webkit-backdrop-filter: blur(22px) saturate(1.35);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--foreground) 3%, transparent),
-    0 14px 46px -22px color-mix(in srgb, var(--foreground) 30%, transparent);
 }
-
-/* Soft ambient halo behind a panel (opt-in) */
-.zg-soft-glow {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--primary) 8%, transparent),
-    0 0 48px -18px color-mix(in srgb, var(--primary) 35%, transparent);
-}
-
-/* Gentle lift on hover (opt-in) */
-.zg-hover-lift {
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
-}
-.zg-hover-lift:hover {
-  transform: translateY(-2px);
-}
-
-/* Primary accent button */
 .zg-volt-btn {
-  background: linear-gradient(160deg, #3b82f6 0%, var(--primary) 55%, #1d4ed8 100%);
-  color: #ffffff;
-  box-shadow:
-    0 0 0 1px rgba(59, 130, 246, 0.3),
-    0 0 20px -8px rgba(59, 130, 246, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  transition: all 0.2s ease;
-}
-.zg-volt-btn:hover:not(:disabled) {
-  filter: brightness(1.06);
-  box-shadow:
-    0 0 0 1px rgba(59, 130, 246, 0.5),
-    0 0 28px -8px rgba(59, 130, 246, 0.7),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transform: translateY(-1px);
-}
-.zg-volt-btn:active:not(:disabled) {
-  transform: translateY(0);
-}
-.zg-volt-btn:disabled {
-  opacity: 0.5;
-  filter: grayscale(0.4);
-}
-
-/* Accent text gradient */
-.zg-volt-text {
-  background: linear-gradient(100deg, #60a5fa 0%, var(--primary) 45%, #1d4ed8 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-/* Subtle chrome edge for hero numbers */
-.zg-chrome-text {
-  background: linear-gradient(
-    180deg,
-    var(--foreground) 0%,
-    color-mix(in srgb, var(--foreground) 62%, transparent) 60%,
-    color-mix(in srgb, var(--foreground) 38%, transparent) 120%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-/* Hairline frame for cards */
-.zg-frame {
-  position: relative;
-}
-.zg-frame::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(
-    140deg,
-    color-mix(in srgb, var(--foreground) 14%, transparent),
-    color-mix(in srgb, var(--foreground) 4%, transparent) 30%,
-    color-mix(in srgb, var(--foreground) 2%, transparent) 70%,
-    rgba(59, 130, 246, 0.3)
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
-/* Live ticker marquee */
-.zg-marquee {
-  display: flex;
-  width: max-content;
-  animation: zg-marquee 42s linear infinite;
-}
-.zg-marquee:hover {
-  animation-play-state: paused;
-}
-@keyframes zg-marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-
-/* Scroll-fade mask for horizontal strips */
-.zg-xfade {
-  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
-}
-
-/* Breath / glow for live dots */
-.zg-live-dot {
-  position: relative;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--primary);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent);
-  animation: zg-pulse 1.6s ease-out infinite;
-}
-@keyframes zg-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 40%, transparent); }
-  70% { box-shadow: 0 0 0 9px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
-
-/* Ticker price flash */
-.zg-flash-up {
-  animation: zg-flash 0.5s ease-out;
-  background: color-mix(in srgb, var(--success) 25%, transparent);
-}
-.zg-flash-down {
-  animation: zg-flash 0.5s ease-out;
-  background: color-mix(in srgb, var(--error) 25%, transparent);
-}
-@keyframes zg-flash {
-  0% { opacity: 0.35; }
-  100% { opacity: 1; }
-}
-
-/* Numeric tabular default in the app */
-.zg-mono {
+  @apply zg-btn;
+  border-radius: var(--radius-xl);
   font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Soft corner tag chip */
-.zg-chip {
-  @apply inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-muted/40 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground;
-}
-
-/* Bespoke range slider */
-.zg-range {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--primary) 60%, transparent) var(--zg-pct, 50%),
-    color-mix(in srgb, var(--border) 80%, transparent) var(--zg-pct, 50%)
-  );
-  outline: none;
-}
-.zg-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: var(--primary);
-  border: 2px solid color-mix(in srgb, var(--background) 90%, transparent);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4), 0 0 10px -2px rgba(59, 130, 246, 0.7);
-  cursor: pointer;
-}
-.zg-range::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: var(--primary);
-  border: 2px solid color-mix(in srgb, var(--background) 90%, transparent);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4), 0 0 10px -2px rgba(59, 130, 246, 0.7);
-  cursor: pointer;
-}
-
-/* Slim number input for app forms */
-.zg-num {
-  @apply h-9 w-full rounded-lg border border-border bg-background px-3 font-mono text-[13px] tabular-nums text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary/60 focus:ring-2 focus:ring-primary/20;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
 }

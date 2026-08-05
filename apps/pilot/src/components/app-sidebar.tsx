@@ -51,8 +51,8 @@ function ModeToggle({
               "flex-1 rounded-md px-3 py-1.5 text-center font-sans text-[12px] font-medium capitalize transition-colors",
               active
                 ? m === "live"
-                  ? "bg-red-500 text-white"
-                  : "bg-primary text-primary-foreground"
+                  ? "bg-red-500 text-white shadow-[0_0_14px_-4px_rgba(239,68,68,0.5)]"
+                  : "bg-primary text-primary-foreground shadow-[0_0_14px_-4px_rgba(59,130,246,0.5)]"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >

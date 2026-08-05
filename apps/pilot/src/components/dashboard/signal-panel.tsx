@@ -1,75 +1,86 @@
-"use client"
+"use client";
 
-import { motion } from "motion/react"
-import { cn } from "@/lib/utils"
-import { ArrowUp, ArrowDown, Minus } from "lucide-react"
-import { PulseDot } from "@/components/animations/pulse-dot"
+import { motion } from "motion/react";
+import { cn } from "@/lib/utils";
+import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 type Signal = {
-  direction?: string
-  confidence?: number
-  score?: number
-  action?: string
-}
+  direction?: string;
+  confidence?: number;
+  score?: number;
+  action?: string;
+};
 
 function SignalRow({
   label,
   s,
   delay,
 }: {
-  label: string
-  s?: Signal | null
-  delay?: number
+  label: string;
+  s?: Signal | null;
+  delay?: number;
 }) {
-  const dir = s?.direction ?? "neutral"
-  const tone =
-    dir === "up"
-      ? "text-[var(--success)]"
-      : dir === "down"
-        ? "text-destructive"
-        : "text-muted-foreground"
-  const Icon =
-    dir === "up" ? ArrowUp : dir === "down" ? ArrowDown : Minus
-  const conf = Number(s?.confidence ?? 0)
+  const dir = s?.direction ?? "neutral";
+  const isUp = dir === "up";
+  const isDown = dir === "down";
+  const conf = Number(s?.confidence ?? 0);
+  const confPct = Math.min(100, Math.max(0, conf * 100));
+  const fillColor =
+    conf >= 0.6 ? "bg-[var(--up)]" : conf >= 0.35 ? "bg-[var(--warning)]" : "bg-[var(--down)]/70";
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -12 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.3, delay: delay ?? 0, ease: [0.25, 0.1, 0.25, 1] }}
-      className="flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2 shadow-sm"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: delay ?? 0, ease: [0.25, 0.1, 0.25, 1] }}
+      className="flex items-center gap-3 rounded-lg"
     >
-      <motion.div
-        animate={dir !== "neutral" ? { scale: [1, 1.15, 1] } : {}}
-        transition={{ duration: 0.4, repeat: 0 }}
+      <div
+        className={cn(
+          "flex size-9 shrink-0 items-center justify-center rounded-lg",
+          isUp && "bg-[var(--up)]/10 text-[var(--up)]",
+          isDown && "bg-[var(--down)]/10 text-[var(--down)]",
+          !isUp && !isDown && "bg-muted text-muted-foreground",
+        )}
       >
-        <Icon className={cn("size-4 shrink-0", tone)} />
-      </motion.div>
-      <span className={cn("w-8 font-mono text-xs font-bold", tone)}>
-        {label}
-      </span>
-      <div className="flex flex-1 items-center gap-2">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted/50">
+        {isUp ? <TrendingUp className="size-4" /> : isDown ? <TrendingDown className="size-4" /> : <Minus className="size-4" />}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground">
+            {label}
+          </span>
+          <span
+            className={cn(
+              "font-mono text-[11px] font-semibold tabular-nums",
+              isUp && "text-[var(--up)]",
+              isDown && "text-[var(--down)]",
+              !isUp && !isDown && "text-muted-foreground",
+            )}
+          >
+            {(conf * 100).toFixed(0)}%
+          </span>
+        </div>
+        <div className="zg-probability-bar">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${Math.min(100, conf * 100)}%` }}
-            transition={{ duration: 0.6, delay: (delay ?? 0) + 0.2, ease: "easeOut" }}
-            className={cn(
-              "h-full rounded-full",
-              conf >= 0.6
-                ? "bg-[var(--success)]"
-                : conf >= 0.3
-                  ? "bg-yellow-500"
-                  : "bg-destructive/60",
-            )}
+            animate={{ width: `${confPct}%` }}
+            transition={{ duration: 0.5, delay: (delay ?? 0) + 0.15, ease: "easeOut" }}
+            className={cn("zg-probability-bar-fill", fillColor)}
           />
         </div>
-        <span className="w-10 text-right font-mono text-xs tabular-nums text-muted-foreground">
-          {String(s?.action ?? "hold").slice(0, 4)}
-        </span>
+        <div className="mt-1 flex justify-between">
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground/60">
+            {String(s?.action ?? "hold").slice(0, 6)}
+          </span>
+          <span className="font-mono text-[9px] tabular-nums text-muted-foreground/50">
+            score {(s?.score ?? 0).toFixed(2)}
+          </span>
+        </div>
       </div>
     </motion.div>
-  )
+  );
 }
 
 export function SignalPanel({
@@ -77,23 +88,26 @@ export function SignalPanel({
   eth,
   ageMs,
 }: {
-  btc?: Signal | null
-  eth?: Signal | null
-  ageMs?: number | null
+  btc?: Signal | null;
+  eth?: Signal | null;
+  ageMs?: number | null;
 }) {
+  const hasSignal = !!btc || !!eth;
   return (
-    <div className="flex flex-col gap-1.5">
-      <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        <PulseDot active={!!btc || !!eth} className="text-[var(--success)]" />
-        Live signals
+    <div className="space-y-3 rounded-xl border border-border/60 bg-surface p-4">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+          <span className={cn("zg-live-dot", hasSignal ? "" : "!bg-muted-foreground/40")} style={!hasSignal ? { animation: "none" } : undefined} />
+          Signals
+        </span>
         {ageMs != null ? (
-          <span className="ml-1 text-[9px] text-muted-foreground/60">
-            {Math.round(ageMs / 1000)}s ago
+          <span className="ml-auto font-mono text-[9px] text-muted-foreground/50">
+            {Math.round(ageMs / 1000)}s
           </span>
         ) : null}
-      </span>
+      </div>
       <SignalRow label="BTC" s={btc} delay={0} />
-      <SignalRow label="ETH" s={eth} delay={0.08} />
+      <SignalRow label="ETH" s={eth} delay={0.06} />
     </div>
-  )
+  );
 }

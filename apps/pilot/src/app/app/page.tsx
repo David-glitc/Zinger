@@ -220,7 +220,6 @@ export default function CommandPage() {
         </div>
         <MarketStrip
           markets={(snap?.markets || []) as Array<Record<string, unknown>>}
-          opens={portfolio.opens}
           signals={snap?.signals}
         />
       </section>
