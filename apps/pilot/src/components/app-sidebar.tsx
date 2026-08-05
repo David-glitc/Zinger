@@ -33,21 +33,25 @@ function ModeToggle({
   mode,
   onChange,
   disabled,
+  paperOnly,
 }: {
   mode: Mode;
   onChange: (mode: Mode) => void;
   disabled?: boolean;
+  paperOnly?: boolean;
 }) {
   return (
     <div className="flex rounded-lg border border-border/70 bg-muted/50 p-0.5">
       {(["paper", "live"] as const).map((m) => {
         const active = mode === m;
+        const liveDisabled = paperOnly && m === "live";
         return (
           <button
             key={m}
             type="button"
-            disabled={disabled}
+            disabled={disabled || liveDisabled}
             onClick={() => onChange(m)}
+            title={liveDisabled ? "Live mode requires an access code" : m}
             className={cn(
               "flex-1 rounded-md px-3 py-1.5 text-center font-sans text-[12px] font-medium capitalize transition-colors",
               active
@@ -55,6 +59,7 @@ function ModeToggle({
                   ? "bg-red-500 text-white shadow-[0_0_14px_-4px_rgba(239,68,68,0.5)]"
                   : "bg-primary text-primary-foreground shadow-[0_0_14px_-4px_rgba(59,130,246,0.5)]"
                 : "text-muted-foreground hover:text-foreground",
+              liveDisabled && "opacity-40 cursor-not-allowed",
             )}
           >
             {m}
@@ -96,12 +101,15 @@ function SidebarContent({
   onModeChange,
   onDisconnect,
   busy,
+  accessKind,
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   onDisconnect: () => void;
   busy: boolean;
+  accessKind: "full" | "paper" | null;
 }) {
+  const paperOnly = accessKind === "paper";
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border/70 px-4">
@@ -117,7 +125,7 @@ function SidebarContent({
         <div className="mb-1.5 px-1 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60">
           Mode
         </div>
-        <ModeToggle mode={mode} onChange={onModeChange} disabled={busy} />
+        <ModeToggle mode={mode} onChange={onModeChange} disabled={busy} paperOnly={paperOnly} />
 
         <div className="my-4 border-t border-border/50" />
 
@@ -182,9 +190,10 @@ interface AppSidebarProps {
   onModeChange: (mode: Mode) => void;
   onDisconnect: () => void;
   busy: boolean;
+  accessKind: "full" | "paper" | null;
 }
 
-export function AppSidebar({ mode, onModeChange, onDisconnect, busy }: AppSidebarProps) {
+export function AppSidebar({ mode, onModeChange, onDisconnect, busy, accessKind }: AppSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -213,7 +222,7 @@ export function AppSidebar({ mode, onModeChange, onDisconnect, busy }: AppSideba
       </div>
 
       <aside className="hidden h-svh w-[212px] shrink-0 flex-col border-r border-border/70 bg-sidebar lg:sticky lg:top-0 lg:flex">
-        <SidebarContent mode={mode} onModeChange={onModeChange} onDisconnect={onDisconnect} busy={busy} />
+        <SidebarContent mode={mode} onModeChange={onModeChange} onDisconnect={onDisconnect} busy={busy} accessKind={accessKind} />
       </aside>
 
       {mobileOpen ? (
@@ -247,7 +256,7 @@ export function AppSidebar({ mode, onModeChange, onDisconnect, busy }: AppSideba
               <div className="mb-1.5 px-1 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60">
                 Mode
               </div>
-              <ModeToggle mode={mode} onChange={onModeChange} disabled={busy} />
+              <ModeToggle mode={mode} onChange={onModeChange} disabled={busy} paperOnly={accessKind === "paper"} />
 
               <div className="my-4 border-t border-border/50" />
 

@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { useWalletAuth } from "@/hooks/use-wallet-auth";
+import { useAccessKind } from "@/hooks/use-access-kind";
 import {
   useEnsureAccount,
   useLiveAccount,
@@ -12,12 +13,9 @@ import {
 } from "@/hooks/use-pilot";
 import type { Mode } from "@/lib/api";
 
-/**
- * Central app state shared by every /app page. Mode, session, and live
- * sync live here so switching paper/live in the rail updates every page.
- */
 export function useAppState() {
   const { address, chainId, isReady } = useWalletAuth();
+  const accessKind = useAccessKind();
   const snapshot = usePilotSnapshot(address, isReady);
   const { data: snap } = snapshot;
   const account = snapshot.data?.account ?? null;
@@ -41,6 +39,10 @@ export function useAppState() {
         toast.error("Connect a wallet first");
         return;
       }
+      if (next === "live" && accessKind === "paper") {
+        toast.error("Live mode requires an access code. Paper mode has full functionality with simulated funds.");
+        return;
+      }
       try {
         await ensureAccount.mutateAsync({ chainId, mode: next });
         if (next === "live") {
@@ -57,7 +59,7 @@ export function useAppState() {
         toast.error(err instanceof Error ? err.message : String(err));
       }
     },
-    [chainId, ensureAccount, syncLive],
+    [chainId, ensureAccount, syncLive, accessKind],
   );
 
   const toggleSession = useCallback(async () => {
@@ -87,5 +89,6 @@ export function useAppState() {
     toggleSession,
     liveAccountQuery,
     syncLive,
+    accessKind,
   };
 }

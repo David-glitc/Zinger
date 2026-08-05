@@ -5,14 +5,40 @@ import { motion } from "motion/react";
 import { Key, ArrowRight, Loader2, Sparkles, PlayCircle, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const STORAGE_KEY = "zg_access";
-
 interface AccessGateProps {
   children: React.ReactNode;
 }
 
+function storeToken(token: string) {
+  document.cookie = `zg_access=${token};path=/;max-age=${90 * 24 * 60 * 60};SameSite=Lax;secure`;
+}
+
+async function verifyStoredToken(): Promise<boolean> {
+  const cookies = document.cookie.split("; ");
+  const tokenCookie = cookies.find((c) => c.startsWith("zg_access="));
+  if (!tokenCookie) return false;
+  const token = tokenCookie.split("=")[1];
+  if (!token) return false;
+
+  try {
+    const res = await fetch("/api/access", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function clearToken() {
+  document.cookie = "zg_access=;path=/;max-age=0";
+}
+
 export function AccessGate({ children }: AccessGateProps) {
   const [granted, setGranted] = useState<boolean | null>(null);
+  const [accessKind, setAccessKind] = useState<"full" | "paper" | null>(null);
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
@@ -21,20 +47,33 @@ export function AccessGate({ children }: AccessGateProps) {
   const [recoveryStatus, setRecoveryStatus] = useState<"idle" | "loading" | "sent" | "notFound">("idle");
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as { code?: string; paper?: boolean; ts?: number };
-        if (parsed.code || parsed.paper) {
-          setGranted(true);
-          return;
+    verifyStoredToken().then((valid) => {
+      if (valid) {
+        const cookies = document.cookie.split("; ");
+        const tokenCookie = cookies.find((c) => c.startsWith("zg_access="));
+        if (tokenCookie) {
+          try {
+            const token = tokenCookie.split("=")[1];
+            const [, body] = token.split(".");
+            if (body) {
+              const payload = JSON.parse(atob(body));
+              setAccessKind(payload.kind === "paper" ? "paper" : "full");
+            }
+          } catch { /* keep as null */ }
         }
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
+        setGranted(true);
+      } else {
+        clearToken();
+        setGranted(false);
       }
-    }
-    setGranted(false);
+    });
   }, []);
+
+  useEffect(() => {
+    if (granted && accessKind) {
+      window.dispatchEvent(new CustomEvent("zg-access-granted", { detail: { kind: accessKind } }));
+    }
+  }, [granted, accessKind]);
 
   const submitCode = useCallback(
     async (e: React.FormEvent) => {
@@ -51,21 +90,23 @@ export function AccessGate({ children }: AccessGateProps) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ code: c }),
         });
-        const data = (await res.json()) as { ok: boolean; error?: string; email?: string };
+        const data = (await res.json()) as { ok: boolean; error?: string; token?: string };
 
         if (!data.ok) {
           const msgs: Record<string, string> = {
-            not_found: "That access code isn't valid. Check your email or try paper mode.",
+            not_found: "That access code is not valid. Check your email or try paper mode.",
             already_used: "This code has already been used.",
+            rate_limited: "Too many attempts. Wait a minute and try again.",
             invalid_code: "Enter a valid access code from your invitation email.",
-            storage_unavailable: "The gate is warming up. Try again.",
+            storage_unavailable: "The gate is temporarily unavailable. Try paper mode.",
           };
           setError(msgs[data.error ?? ""] ?? "Something went wrong. Try again.");
           setStatus("error");
           return;
         }
 
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ code: c, ts: Date.now(), email: data.email }));
+        storeToken(data.token!);
+        setAccessKind("full");
         setGranted(true);
       } catch {
         setError("Couldn't reach the access service. Check your connection.");
@@ -76,8 +117,27 @@ export function AccessGate({ children }: AccessGateProps) {
   );
 
   async function handlePaperMode() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ paper: true, ts: Date.now() }));
-    setGranted(true);
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/access", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+      });
+      const data = (await res.json()) as { ok: boolean; token?: string };
+
+      if (!data.ok) {
+        setError("Couldn't issue paper access token. Try again.");
+        setStatus("error");
+        return;
+      }
+
+      storeToken(data.token!);
+      setAccessKind("paper");
+      setGranted(true);
+    } catch {
+      setError("Couldn't reach the access service.");
+      setStatus("error");
+    }
   }
 
   async function handleRecovery(e: React.FormEvent) {
@@ -189,7 +249,8 @@ export function AccessGate({ children }: AccessGateProps) {
               <div className="mt-4 border-t border-border/50 pt-4">
                 <button
                   onClick={handlePaperMode}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 font-mono text-[12px] uppercase tracking-[0.14em] text-foreground transition-colors hover:bg-muted/50"
+                  disabled={status === "loading"}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 font-mono text-[12px] uppercase tracking-[0.14em] text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
                 >
                   <PlayCircle className="size-4 text-primary" />
                   Try paper mode — no code needed
@@ -208,7 +269,7 @@ export function AccessGate({ children }: AccessGateProps) {
           ) : (
             <div className="mt-5">
               <p className="mb-3 font-sans text-[12px] text-muted-foreground">
-                Enter the email you signed up with. We&apos;ll look up your code.
+                Enter the email you signed up with. We will look up your code.
               </p>
               <form onSubmit={handleRecovery}>
                 <input
@@ -240,7 +301,7 @@ export function AccessGate({ children }: AccessGateProps) {
 
               {recoveryStatus === "sent" ? (
                 <motion.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 font-mono text-[11px] text-[var(--success)]">
-                  Code found! Check your inbox for your access code from when you joined the waitlist.
+                  Code found. Check your inbox from when you joined the waitlist.
                 </motion.p>
               ) : recoveryStatus === "notFound" ? (
                 <motion.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 font-mono text-[11px] text-destructive">

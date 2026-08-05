@@ -184,81 +184,6 @@ export type PilotSnapshot = {
   } | null;
 };
 
-async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((data as { error?: string }).error || res.statusText || "request failed");
-  }
-  return data as T;
-}
-
-export function getPilot(address?: string | null) {
-  const q = address ? `?address=${encodeURIComponent(address)}` : "";
-  return jsonFetch<PilotSnapshot>(`/pilot${q}`);
-}
-
-export function connectWalletApi(address: string, chainId: number) {
-  return jsonFetch<{ ok: boolean; account: Account }>("/pilot/connect", {
-    method: "POST",
-    body: JSON.stringify({ address, chainId }),
-  });
-}
-
-export function ensureAccount(address: string, chainId: number, mode?: Mode) {
-  return jsonFetch<{ ok: boolean; account: Account }>("/pilot/account", {
-    method: "POST",
-    body: JSON.stringify({ address, chainId, mode }),
-  });
-}
-
-export function deposit(address: string, amount: number) {
-  return jsonFetch<{
-    ok: boolean;
-    account: Account;
-    gross: number;
-    fee: number;
-    net: number;
-  }>("/pilot/deposit", {
-    method: "POST",
-    body: JSON.stringify({ address, amount }),
-  });
-}
-
-export function withdraw(address: string, amount: number) {
-  return jsonFetch<{ ok: boolean; account: Account }>("/pilot/withdraw", {
-    method: "POST",
-    body: JSON.stringify({ address, amount }),
-  });
-}
-
-export function saveRulesApi(address: string, rules: Rules) {
-  return jsonFetch<{ ok: boolean; account: Account }>("/pilot/rules", {
-    method: "POST",
-    body: JSON.stringify({ address, rules }),
-  });
-}
-
-export function startSession(address: string) {
-  return jsonFetch<{ ok: boolean; account: Account }>("/pilot/session/start", {
-    method: "POST",
-    body: JSON.stringify({ address }),
-  });
-}
-
-export function stopSession(address: string) {
-  return jsonFetch<{ ok: boolean; account: Account }>("/pilot/session/stop", {
-    method: "POST",
-    body: JSON.stringify({ address }),
-  });
-}
-
 export type DepositInfo = {
   receiveAddress: string;
   depositWallet: string | null;
@@ -281,23 +206,6 @@ export type UsdcDepositResult = {
   swapTx?: string;
   depositTx?: string;
 };
-
-export function getDepositInfo() {
-  return jsonFetch<DepositInfo>("/pilot/deposit-info");
-}
-
-export function confirmUsdcDeposit(address: string, txHash: string) {
-  return jsonFetch<UsdcDepositResult>("/pilot/deposit-usdc", {
-    method: "POST",
-    body: JSON.stringify({ address, txHash }),
-  });
-}
-
-export function getDeposits(address: string) {
-  return jsonFetch<{ deposits: Array<Record<string, unknown>> }>(
-    `/pilot/deposits?address=${encodeURIComponent(address)}`,
-  );
-}
 
 export function money(n: number | null | undefined, d = 2) {
   const x = Number(n);
