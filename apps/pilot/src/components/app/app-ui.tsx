@@ -59,7 +59,7 @@ export function Stat({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: index * 0.05, ease: [0.25, 0.1, 0.25, 1] }}
       className={cn(
-        "zg-frame zg-glass relative overflow-hidden rounded-xl p-3.5 sm:p-4",
+        "rounded-xl border border-border/60 bg-background/60 p-3.5 sm:p-4",
         accent && "border-primary/25",
       )}
     >
@@ -103,10 +103,10 @@ export function GlassPanel({
   right?: React.ReactNode;
 }) {
   return (
-    <div className={cn("zg-glass rounded-xl", className)}>
+    <div className={cn("rounded-xl border border-border/60 bg-background/60", className)}>
       {label ? (
-        <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
-          <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
+        <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-2">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
             {label}
           </span>
           {right}
@@ -119,8 +119,8 @@ export function GlassPanel({
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="mb-2.5 flex items-center gap-2 font-display text-[15px] font-[500] tracking-tight text-foreground">
-      <span className="size-1 rounded-full bg-primary shadow-[0_0_8px_rgba(59,130,246,0.7)]" />
+    <h2 className="flex items-center gap-2 font-display text-[14px] font-medium tracking-tight text-foreground">
+      <span className="size-1 rounded-full bg-primary" />
       {children}
     </h2>
   );

@@ -42,7 +42,7 @@ export default function VaultPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
       <GeoblockAlert />
       <PageHeading
         eyebrow="Vault"
@@ -91,8 +91,8 @@ export default function VaultPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Account details */}
-        <div className="space-y-6">
-          <section className="space-y-3">
+        <div className="space-y-5">
+          <section className="space-y-2.5">
             <SectionLabel>Identity</SectionLabel>
             <GlassPanel label="EXECUTION ACCOUNT">
               <dl className="space-y-2.5 p-4">
@@ -106,7 +106,7 @@ export default function VaultPage() {
             </GlassPanel>
           </section>
 
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <SectionLabel>Funding ledger</SectionLabel>
             <GlassPanel label="LIFETIME">
               <dl className="space-y-2.5 p-4">
@@ -119,7 +119,7 @@ export default function VaultPage() {
             </GlassPanel>
           </section>
 
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <SectionLabel>Deposit wallet</SectionLabel>
             <GlassPanel label="USDC → pUSD">
               <div className="space-y-3 p-4">
@@ -158,8 +158,8 @@ export default function VaultPage() {
         </div>
 
         {/* Reconciliation */}
-        <div className="space-y-6">
-          <section className="space-y-3">
+        <div className="space-y-5">
+          <section className="space-y-2.5">
             <SectionLabel>Reconciliation</SectionLabel>
             <GlassPanel label="LAST SYNC">
               <dl className="space-y-2.5 p-4">
@@ -188,7 +188,7 @@ export default function VaultPage() {
           </section>
 
           {mismatches.length > 0 ? (
-            <section className="space-y-3">
+            <section className="space-y-2.5">
               <SectionLabel>Mismatches</SectionLabel>
               <GlassPanel label={`${mismatches.length} OPEN`}>
                 <div className="max-h-56 space-y-2 overflow-y-auto p-4">
@@ -218,7 +218,7 @@ export default function VaultPage() {
             </section>
           ) : null}
 
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <SectionLabel>Deposit history</SectionLabel>
             <GlassPanel label="LATEST">
               <div className="max-h-64 overflow-y-auto">

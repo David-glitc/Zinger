@@ -108,7 +108,7 @@ export default function ChartsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
       <GeoblockAlert />
       <PageHeading
         eyebrow="Charts"
@@ -157,7 +157,7 @@ export default function ChartsPage() {
       ) : (
         <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
           {/* Main chart */}
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <SectionLabel>
                 {String(selected.symbol)} · {String(selected.duration)} ·{" "}
@@ -196,8 +196,8 @@ export default function ChartsPage() {
           </section>
 
           {/* Market meta */}
-          <aside className="space-y-6">
-            <section className="space-y-3">
+          <aside className="space-y-5">
+            <section className="space-y-2.5">
               <SectionLabel>Market</SectionLabel>
               <GlassPanel>
                 <dl className="space-y-2.5 p-4">
@@ -233,7 +233,7 @@ export default function ChartsPage() {
               </GlassPanel>
             </section>
 
-            <section className="space-y-3">
+            <section className="space-y-2.5">
               <SectionLabel>Position</SectionLabel>
               <GlassPanel>
                 {open ? (
@@ -276,7 +276,7 @@ export default function ChartsPage() {
 
       {/* Past markets */}
       {pastTrades.length > 0 ? (
-        <section className="space-y-3">
+        <section className="space-y-2.5">
           <div className="flex items-center gap-2">
             <SectionLabel>Past markets</SectionLabel>
             <History className="size-3.5 text-muted-foreground" />

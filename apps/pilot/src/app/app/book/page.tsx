@@ -133,7 +133,7 @@ export default function BookPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
       <GeoblockAlert />
       <PageHeading
         eyebrow="Book"
@@ -142,21 +142,21 @@ export default function BookPage() {
       />
 
       {/* Funds flow audit */}
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         <SectionLabel>Funds flow</SectionLabel>
         <FundsFlow data={flowData} />
       </section>
 
       {/* Account statement (deterministic) */}
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         <div className="flex items-center justify-between">
           <SectionLabel>Account statement</SectionLabel>
-          <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             <BookOpen className="size-3.5" />
             {mode === "live" ? "live CLOB" : "paper"}
           </span>
         </div>
-        <div className="zg-glass overflow-hidden rounded-xl">
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-background/60">
           <div className="divide-y divide-border/40 px-4">
             {[
               ["Deposited", Number(account?.depositedGross ?? 0), "+"],
@@ -232,8 +232,8 @@ export default function BookPage() {
       </div>
 
       {/* Tabs */}
-      <div className="rounded-xl border border-border/70">
-        <div className="zg-glass flex gap-1 overflow-x-auto rounded-t-xl border-b border-border/60 p-1.5">
+      <div className="rounded-xl border border-border/60">
+        <div className="flex gap-1 overflow-x-auto rounded-t-xl border-b border-border/40 bg-background/60 p-1.5">
           {tabs.map(([v, label, Icon]) => (
             <button
               key={v}

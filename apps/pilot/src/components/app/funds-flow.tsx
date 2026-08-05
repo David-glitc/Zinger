@@ -184,7 +184,7 @@ export function FundsFlow({ data }: { data: FundsFlowData }) {
         whileHover={{ y: -2, scale: 1.01 }}
         whileTap={{ scale: 0.98 }}
         className={cn(
-          "zg-frame zg-glass relative w-full overflow-hidden rounded-xl p-3 text-left transition-all",
+          "relative w-full overflow-hidden rounded-xl border border-border/60 bg-background/60 p-3 text-left transition-all",
           dim && "opacity-30 saturate-0",
           active && "ring-1 ring-primary/60 shadow-[0_0_24px_-6px_rgba(59,130,246,0.4)]",
           node.tone === "blue" && active && "border-primary/40",
@@ -262,7 +262,7 @@ export function FundsFlow({ data }: { data: FundsFlowData }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
       {/* Diagram */}
-      <div className="zg-glass rounded-xl p-4">
+      <div className="rounded-xl border border-border/60 bg-background/60 p-4">
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
             Funds flow · {live ? "live" : "paper"}
@@ -307,7 +307,7 @@ export function FundsFlow({ data }: { data: FundsFlowData }) {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -12 }}
               transition={{ duration: 0.2 }}
-              className="zg-frame zg-glass sticky top-20 rounded-xl p-4"
+              className="sticky top-20 rounded-xl border border-border/60 bg-background/60 p-4"
             >
               <div className="flex items-start justify-between gap-2">
                 <div>

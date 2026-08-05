@@ -66,7 +66,7 @@ export function LiveTradePanel({ open }: LiveTradePanelProps) {
 
   if (!open) {
     return (
-      <div className="zg-glass flex min-h-44 flex-col items-center justify-center gap-3 rounded-2xl p-6 text-center">
+      <div className="flex min-h-44 flex-col items-center justify-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-6 text-center">
         <span className="relative flex size-10 items-center justify-center rounded-xl border border-primary/25 bg-primary/10">
           <Target className="size-4 text-primary" />
           <span className="zg-live-dot absolute -right-0.5 -top-0.5" />
@@ -90,7 +90,7 @@ export function LiveTradePanel({ open }: LiveTradePanelProps) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="zg-glass relative overflow-hidden rounded-2xl p-5"
+      className="relative overflow-hidden rounded-2xl border border-border/60 bg-background/60 p-5"
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 

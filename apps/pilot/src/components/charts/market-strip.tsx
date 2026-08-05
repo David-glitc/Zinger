@@ -67,7 +67,7 @@ function MarketStripCard({
         animate={{ opacity: 1, y: 0 }}
         whileHover={{ y: -3 }}
         transition={{ duration: 0.25 }}
-        className="zg-frame zg-glass overflow-hidden rounded-xl"
+        className="overflow-hidden rounded-xl border border-border/60 bg-background/60"
       >
         <div className="flex items-center justify-between gap-2 px-3 py-2">
           <div className="flex items-center gap-2">

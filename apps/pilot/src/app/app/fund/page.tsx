@@ -63,7 +63,7 @@ export default function FundPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
       <GeoblockAlert />
       <PageHeading
         eyebrow="Capital"
@@ -81,7 +81,7 @@ export default function FundPage() {
       />
 
       {/* Connected wallet balances */}
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         <SectionLabel>Connected wallet</SectionLabel>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Stat
@@ -105,8 +105,8 @@ export default function FundPage() {
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-        <div className="space-y-6">
-          <section className="space-y-3">
+        <div className="space-y-5">
+          <section className="space-y-2.5">
             <SectionLabel>Move money</SectionLabel>
             <DepositFlow
               info={depositInfo.data}
@@ -119,14 +119,14 @@ export default function FundPage() {
             />
           </section>
 
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <SectionLabel>USDC deposit detail</SectionLabel>
             <DepositPanel info={depositInfo.data} address={address} />
           </section>
         </div>
 
-        <div className="space-y-6">
-          <section className="space-y-3">
+        <div className="space-y-5">
+          <section className="space-y-2.5">
             <SectionLabel>How it lands</SectionLabel>
             <GlassPanel>
               <ol className="space-y-4 p-4">
@@ -166,7 +166,7 @@ export default function FundPage() {
           </section>
 
           {mode === "live" && (
-            <section className="space-y-3">
+            <section className="space-y-2.5">
               <SectionLabel>Vault position</SectionLabel>
               <GlassPanel label="pUSD → CLOB">
                 <dl className="space-y-2.5 p-4">
@@ -195,7 +195,7 @@ export default function FundPage() {
             </section>
           )}
 
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <SectionLabel>Gas check</SectionLabel>
             <GlassPanel label="GAS WALLET">
               <div className="flex items-center justify-between gap-2 p-4">

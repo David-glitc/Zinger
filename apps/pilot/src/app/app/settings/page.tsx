@@ -145,7 +145,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
       <GeoblockAlert />
       <PageHeading
         eyebrow="Tune"
@@ -175,9 +175,9 @@ export default function SettingsPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
         {/* Left: bands */}
-        <div className="space-y-6">
+        <div className="space-y-5">
           <GlassPanel label="ENTRY BANDS">
-            <div className="space-y-6 p-4 sm:p-5">
+            <div className="space-y-5 p-4 sm:p-5">
               <BandField label="Max position" hint="per trade, % of equity">
                 <PctSlider
                   value={rules.maxPositionPct}
@@ -286,8 +286,8 @@ export default function SettingsPage() {
         </div>
 
         {/* Right: live preview */}
-        <div className="space-y-6">
-          <section className="space-y-3">
+        <div className="space-y-5">
+          <section className="space-y-2.5">
             <SectionLabel>Live preview</SectionLabel>
             <CapitalInsights
               edgeGate={snap?.edgeGate}

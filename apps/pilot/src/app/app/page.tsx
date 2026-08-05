@@ -6,7 +6,7 @@ import { usePortfolio } from "@/hooks/use-portfolio";
 import { money } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
-import { Play, Square, Radio, ArrowUpRight, ArrowDownRight, Plus } from "lucide-react";
+import { Play, Square, Radio, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { PageHeading, Stat, GlassPanel, SectionLabel } from "@/components/app/app-ui";
 import { SignalPanel } from "@/components/dashboard/signal-panel";
 import { CapitalInsights } from "@/components/dashboard/capital-insights";
@@ -36,12 +36,11 @@ export default function CommandPage() {
 
   const narrative = snap?.narrative?.headline;
   const liveTrading = snap?.liveTrading;
-  const feeRate = snap?.platformFeeRate ?? account?.platformFeeRate ?? 0.01;
   const canStart = mode === "paper" ? cash >= 50 : portfolio.liveCash > 0 || !!liveTrading?.liveReady;
 
   if (isLoading && !snap) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+      <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
         <div className="space-y-3">
           <div className="h-4 w-24 animate-pulse rounded bg-muted" />
           <div className="h-8 w-64 animate-pulse rounded bg-muted" />
@@ -51,7 +50,7 @@ export default function CommandPage() {
             <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
           ))}
         </div>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-5 lg:grid-cols-2">
           <div className="h-64 animate-pulse rounded-xl bg-muted" />
           <div className="h-64 animate-pulse rounded-xl bg-muted" />
         </div>
@@ -60,69 +59,63 @@ export default function CommandPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
       <GeoblockAlert />
 
-      {/* Header */}
-      <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 -z-10 zg-aurora opacity-60" />
-        <PageHeading
-          eyebrow="Command"
-          title={sessionRunning ? "Session live" : "Mission control"}
-          subtitle={
-            narrative ||
-            (sessionRunning
-              ? "Entries are firing inside your bands. Watch the book."
-              : "Fund the vault, set your bands, then start a session.")
-          }
-          actions={
-            <div className="flex items-center gap-2">
-              <span className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground sm:flex">
-                <span
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    Number(snap?.feed?.ageMs ?? 0) < 8000
-                      ? "bg-[var(--success)]"
-                      : "bg-warning",
-                  )}
-                />
-                Books · fee {(feeRate * 100).toFixed(0)}% · {mode} ·{" "}
-                {snap?.feed?.ageMs != null ? `${Math.max(0, Math.round(Number(snap.feed.ageMs) / 1000))}s` : "—"}
-              </span>
-              <Button
-                size="lg"
-                disabled={busy || (!sessionRunning && !canStart)}
-                onClick={toggleSession}
+      <PageHeading
+        eyebrow="Command"
+        title={sessionRunning ? "Session live" : "Mission control"}
+        subtitle={
+          narrative ||
+          (sessionRunning
+            ? "Entries are firing inside your bands. Watch the book."
+            : "Fund the vault, set your bands, then start a session.")
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <span className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground sm:flex">
+              <span
                 className={cn(
-                  "min-w-[150px] rounded-xl font-mono text-[12px] uppercase tracking-[0.14em]",
-                  sessionRunning
-                    ? "border border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/20"
-                    : "zg-volt-btn text-white",
+                  "size-1.5 rounded-full",
+                  Number(snap?.feed?.ageMs ?? 0) < 8000
+                    ? "bg-[var(--success)]"
+                    : "bg-warning",
                 )}
-              >
-                {sessionRunning ? (
-                  <>
-                    <Square className="mr-1.5 size-3.5" /> Stop session
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-1.5 size-3.5" /> Start session
-                  </>
-                )}
-              </Button>
-            </div>
-          }
-        />
-        {!sessionRunning && !canStart ? (
-          <p className="mt-2 font-mono text-[11px] text-destructive">
-            {mode === "paper"
-              ? "Deposit at least $50 paper credit before starting. → /fund"
-              : "Fund pUSD or sync the live CLOB before starting. → /fund"}
-          </p>
-        ) : null}
-      </div>
+              />
+              {snap?.feed?.ageMs != null ? `${Math.max(0, Math.round(Number(snap.feed.ageMs) / 1000))}s` : "—"} · {mode}
+            </span>
+            <Button
+              size="lg"
+              disabled={busy || (!sessionRunning && !canStart)}
+              onClick={toggleSession}
+              className={cn(
+                "min-w-[150px] rounded-xl font-mono text-[12px] uppercase tracking-[0.14em]",
+                sessionRunning
+                  ? "border border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/20"
+                  : "zg-volt-btn text-white",
+              )}
+            >
+              {sessionRunning ? (
+                <>
+                  <Square className="mr-1.5 size-3.5" /> Stop session
+                </>
+              ) : (
+                <>
+                  <Play className="mr-1.5 size-3.5" /> Start session
+                </>
+              )}
+            </Button>
+          </div>
+        }
+      />
+      {!sessionRunning && !canStart ? (
+        <p className="mt-2 font-mono text-[11px] text-destructive">
+          {mode === "paper"
+            ? "Deposit at least $50 paper credit before starting."
+            : "Fund pUSD or sync the live CLOB before starting."}
+        </p>
+      ) : null}
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Stat
           label={mode === "live" ? "CLOB cash" : "Equity"}
@@ -157,7 +150,6 @@ export default function CommandPage() {
         />
       </div>
 
-      {/* Quick share */}
       <div className="flex items-center justify-end">
         <SharePnl
           pnl={realized}
@@ -166,10 +158,9 @@ export default function CommandPage() {
         />
       </div>
 
-      {/* Live book strip */}
       {mode === "live" ? (
-        <div className="zg-glass flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl px-4 py-3">
-          <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border/60 bg-background/60 px-4 py-2.5">
+          <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-foreground">
             <Radio className="size-3.5 text-primary" /> Live book
           </span>
           <span className="font-mono text-[11px] text-muted-foreground">
@@ -192,14 +183,6 @@ export default function CommandPage() {
                 ? "ready"
                 : "not ready"}
           </span>
-          {!portfolio.liveCash && !liveTrading?.liveReady ? (
-            <Link
-              href="/app/fund"
-              className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline"
-            >
-              <Plus className="size-3" /> Fund
-            </Link>
-          ) : null}
           <Button
             variant="outline"
             size="xs"
@@ -212,8 +195,7 @@ export default function CommandPage() {
         </div>
       ) : null}
 
-      {/* Live trade + trade-value chart */}
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         <div className="flex items-center justify-between">
           <SectionLabel>Position radar</SectionLabel>
           <Link
@@ -226,8 +208,7 @@ export default function CommandPage() {
         <LiveTradePanel open={opens[0] || null} />
       </section>
 
-      {/* Markets strip */}
-      <section className="space-y-3">
+      <section className="space-y-2.5">
         <div className="flex items-center justify-between">
           <SectionLabel>Markets</SectionLabel>
           <Link
@@ -244,15 +225,14 @@ export default function CommandPage() {
         />
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-        {/* Left column */}
-        <div className="space-y-6">
-          <section className="space-y-3">
+      <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-5">
+          <section className="space-y-2.5">
             <SectionLabel>Live signals</SectionLabel>
             <SignalPanel btc={snap?.signals?.btc} eth={snap?.signals?.eth} ageMs={snap?.feed?.ageMs ?? null} />
           </section>
 
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <SectionLabel>Edge gate</SectionLabel>
             <CapitalInsights
               edgeGate={snap?.edgeGate}
@@ -265,12 +245,9 @@ export default function CommandPage() {
             />
           </section>
 
-          {/* Open book preview */}
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <div className="flex items-center justify-between">
-              <SectionLabel>
-                Open book <span className="ml-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground/60">({mode})</span> ({opens.length})
-              </SectionLabel>
+              <SectionLabel>Open book ({opens.length})</SectionLabel>
               <Link
                 href="/app/book"
                 className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline"
@@ -328,26 +305,20 @@ export default function CommandPage() {
           </section>
         </div>
 
-        {/* Right column */}
-        <div className="space-y-6">
-          <section className="space-y-3">
+        <div className="space-y-5">
+          <section className="space-y-2.5">
             <div className="flex items-center justify-between">
               <SectionLabel>Vault</SectionLabel>
-              <div className="flex items-center gap-2">
-                <span className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
-                  {mode}
-                </span>
-                <Link href="/app/vault" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
-                  Inspect <ArrowUpRight className="size-3" />
-                </Link>
-              </div>
+              <Link href="/app/vault" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
+                Inspect <ArrowUpRight className="size-3" />
+              </Link>
             </div>
-            <GlassPanel label={`EXECUTION ACCOUNT · ${mode.toUpperCase()}`}>
+            <GlassPanel>
               <dl className="space-y-2.5 px-4 py-3">
                 {(
                   [
-                    ["Session", account?.session?.running ? `RUNNING #${account.session.id}` : "idle"],
-                    ["Account ID", String(account?.accountId ?? "—")],
+                    ["Session", account?.session?.running ? `Running #${account.session.id}` : "Idle"],
+                    ["Account", String(account?.accountId ?? "—")],
                     ["Deposited", money(Number(account?.depositedGross ?? 0))],
                     ["Withdrawn", money(Number(account?.withdrawn ?? 0))],
                     ["Fees paid", money(Number(account?.platformFeesPaid ?? 0))],
@@ -355,7 +326,7 @@ export default function CommandPage() {
                   ] as const
                 ).map(([k, v]) => (
                   <div key={k} className="flex items-center justify-between gap-2">
-                    <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                       {k}
                     </dt>
                     <dd className="truncate font-mono text-[12px] tabular-nums text-foreground">
@@ -367,19 +338,14 @@ export default function CommandPage() {
             </GlassPanel>
           </section>
 
-          <section className="space-y-3">
+          <section className="space-y-2.5">
             <div className="flex items-center justify-between">
               <SectionLabel>Bands</SectionLabel>
-              <div className="flex items-center gap-2">
-                <span className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
-                  {mode}
-                </span>
-                <Link href="/app/settings" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
-                  Tune <ArrowUpRight className="size-3" />
-                </Link>
-              </div>
+              <Link href="/app/settings" className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
+                Tune <ArrowUpRight className="size-3" />
+              </Link>
             </div>
-            <GlassPanel label={`ENTRY FILTERS · ${mode.toUpperCase()}`}>
+            <GlassPanel>
               <dl className="space-y-2.5 px-4 py-3">
                 {(
                   [
@@ -392,7 +358,7 @@ export default function CommandPage() {
                   ] as const
                 ).map(([k, v]) => (
                   <div key={k} className="flex items-center justify-between gap-2">
-                    <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                       {k}
                     </dt>
                     <dd className="font-mono text-[12px] tabular-nums text-foreground">{v}</dd>
