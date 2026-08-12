@@ -1,32 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono, Space_Grotesk, Instrument_Serif } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/providers/theme-provider";
 import "@/styles/globals.css";
 
-const display = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-display",
-  weight: ["400", "500", "600", "700"],
-});
-
-const sans = Inter({
+const sans = Geist({
   subsets: ["latin"],
   variable: "--font-sans",
   weight: ["400", "500", "600", "700"],
 });
 
-const mono = JetBrains_Mono({
+const display = Geist({
+  subsets: ["latin"],
+  variable: "--font-display",
+  weight: ["500", "600", "700"],
+});
+
+const mono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   weight: ["400", "500", "600", "700"],
-});
-
-const serif = Instrument_Serif({
-  subsets: ["latin"],
-  variable: "--font-serif",
-  weight: ["400"],
-  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
@@ -88,7 +81,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${display.variable} ${sans.variable} ${mono.variable} ${serif.variable}`}
+      className={`${display.variable} ${sans.variable} ${mono.variable}`}
     >
       <body className="min-h-svh bg-background font-[family-name:var(--font-sans)] text-foreground antialiased">
         <ThemeProvider>

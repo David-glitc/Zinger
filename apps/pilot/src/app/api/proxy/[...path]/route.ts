@@ -10,22 +10,9 @@ async function proxyRequest(request: Request, targetBase: string) {
   const targetUrl = `${targetBase}${targetPath}${url.search}`;
 
   const headers = new Headers();
+  const allowlist = new Set(["accept", "accept-language", "content-type", "origin", "user-agent", "poly-address", "poly-signature", "poly-timestamp", "poly-nonce", "poly-api-key"]);
   for (const [k, v] of request.headers.entries()) {
-    const lower = k.toLowerCase();
-    if (
-      lower === "host" ||
-      lower === "connection" ||
-      lower === "x-forwarded-proto" ||
-      lower === "x-forwarded-for" ||
-      lower === "x-vercel-id" ||
-      lower === "x-vercel-deployment-url" ||
-      lower === "x-vercel-ip" ||
-      lower === "x-vercel-country" ||
-      lower === "x-vercel-region" ||
-      lower === "x-real-ip"
-    )
-      continue;
-    headers.set(k, v);
+    if (allowlist.has(k.toLowerCase())) headers.set(k, v);
   }
   headers.set("accept", "application/json");
 
@@ -33,6 +20,7 @@ async function proxyRequest(request: Request, targetBase: string) {
     const res = await fetch(targetUrl, {
       method: request.method,
       headers,
+      redirect: "manual",
       body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.text(),
       signal: AbortSignal.timeout(15000),
     });
@@ -57,13 +45,13 @@ async function proxyRequest(request: Request, targetBase: string) {
 }
 
 async function proxyForMethod(request: Request) {
+  if (!["GET", "HEAD"].includes(request.method)) {
+    return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+  }
   const url = new URL(request.url);
   const base = url.pathname.startsWith("/api/proxy/gamma") ? GAMMA_BASE : CLOB_BASE;
   return proxyRequest(request, base);
 }
 
 export const GET = proxyForMethod;
-export const POST = proxyForMethod;
-export const DELETE = proxyForMethod;
-export const PUT = proxyForMethod;
 

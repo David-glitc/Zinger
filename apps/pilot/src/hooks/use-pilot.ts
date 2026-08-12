@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import type { Mode, Rules } from "@/lib/api";
 import { pilotService } from "@/services/pilot.service";
+import { storeToken } from "@/lib/access";
 
 export function usePilotSnapshot(address?: string | null, enabled = true) {
   return useQuery({
@@ -21,6 +22,9 @@ export function useConnectWallet() {
     mutationFn: ({ address, chainId }: { address: string; chainId: number }) =>
       pilotService.connectWallet(address.toLowerCase(), chainId),
     onSuccess: (data, vars) => {
+      if (data.token) {
+        storeToken(data.token);
+      }
       queryClient.setQueryData(queryKeys.pilot.snapshot(vars.address.toLowerCase()), (old) => ({
         ...(typeof old === "object" && old ? old : {}),
         account: data.account,
@@ -109,6 +113,59 @@ export function useSessionToggle(address?: string | null) {
   });
 }
 
+export function useClobBalanceCheck(address?: string | null) {
+  return useQuery({
+    queryKey: ["pilot", "clob", "balance", address?.toLowerCase()],
+    queryFn: () => pilotService.getClobBalanceCheck(address?.toLowerCase() || ""),
+    enabled: !!address,
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
+}
+
+export function useClobStatus(address?: string | null) {
+  return useQuery({
+    queryKey: ["pilot", "clob", "status", address?.toLowerCase()],
+    queryFn: () => pilotService.getClobStatus(address?.toLowerCase() || ""),
+    enabled: !!address,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+}
+
+export function useClobProvisionMutation(address?: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (signed: { signature: string; timestamp: string; nonce: string }) => {
+      if (!address) throw new Error("Wallet not connected");
+      return pilotService.provisionClob(address.toLowerCase(), signed.signature, signed.timestamp, signed.nonce);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["pilot", "clob", "status", address?.toLowerCase()],
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pilot.all });
+    },
+  });
+}
+
+export function usePaperTick(address?: string | null, running = false) {
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: ["pilot", "paper", "tick", address?.toLowerCase()],
+    queryFn: async () => {
+      const res = await pilotService.paperTick(address?.toLowerCase() || "");
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.pilot.snapshot(address?.toLowerCase()),
+      });
+      return res;
+    },
+    enabled: !!address && running,
+    refetchInterval: running ? 5_000 : false,
+    staleTime: 3_000,
+  });
+}
+
 export function usePilotAccount(address?: string | null) {
   const snapshot = usePilotSnapshot(address, !!address);
   return {
@@ -118,10 +175,11 @@ export function usePilotAccount(address?: string | null) {
   };
 }
 
-export function useDepositInfo() {
+export function useDepositInfo(address?: string | null) {
   return useQuery({
-    queryKey: ["pilot", "deposit-info"],
-    queryFn: () => pilotService.getDepositInfo(),
+    queryKey: ["pilot", "deposit-info", address?.toLowerCase()],
+    queryFn: () => pilotService.getDepositInfo(address?.toLowerCase() || ""),
+    enabled: !!address,
     refetchInterval: 30_000,
     staleTime: 10_000,
   });

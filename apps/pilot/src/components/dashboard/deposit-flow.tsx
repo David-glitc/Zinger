@@ -27,10 +27,12 @@ export function DepositFlow({
   busy,
   cash,
 }: DepositFlowProps) {
-  const [depositAmt, setDepositAmt] = useState(1000);
+  const [depositAmt, setDepositAmt] = useState(50);
   const [withdrawAmt, setWithdrawAmt] = useState(0);
   const [txHash, setTxHash] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const QUICK_FUND = [50, 100, 250, 500];
 
   async function handleCopy(addr: string) {
     await navigator.clipboard.writeText(addr);
@@ -61,7 +63,7 @@ export function DepositFlow({
             <Wallet className="size-4 text-primary" />
             Fund live account
           </h3>
-          <p className="mt-2 font-serif text-[13px] leading-relaxed text-muted-foreground">
+          <p className="mt-2 font-sans text-[13px] leading-relaxed text-muted-foreground">
             Send Polygon native USDC to the address below. After the transaction confirms,
             paste the hash to convert USDC → pUSD and credit your account.
           </p>
@@ -132,14 +134,28 @@ export function DepositFlow({
           <Wallet className="size-4 text-primary" />
           Paper credit
         </h3>
-        <p className="mt-2 font-serif text-[13px] leading-relaxed text-muted-foreground">
+        <p className="mt-2 font-sans text-[13px] leading-relaxed text-muted-foreground">
           Paper credit hits your ledger instantly (1% fee). This is what the session spends.
         </p>
         <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {QUICK_FUND.map((q) => (
+              <Button
+                key={q}
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => onDeposit(q)}
+                className="rounded-xl border-border font-mono text-[11px] text-foreground hover:bg-primary/10"
+              >
+                +${q}
+              </Button>
+            ))}
+          </div>
           <div className="flex flex-wrap gap-2">
             <Input
               type="number"
-              min={100}
+              min={50}
               max={100000}
               step={50}
               className="h-9 w-28 rounded-2xl border-border text-sm"

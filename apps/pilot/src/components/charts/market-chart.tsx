@@ -25,6 +25,8 @@ export interface MarketChartSignal {
 export interface MarketChartProps {
   history: PricePoint[];
   livePrice?: number | null;
+  /** Streaming trade ticks appended after history (preferred over livePrice). */
+  liveTicks?: PricePoint[];
   entryPrice?: number | null;
   entryTime?: number | null;
   target?: number | null;
@@ -38,6 +40,7 @@ export interface MarketChartProps {
 export function MarketChart({
   history,
   livePrice,
+  liveTicks,
   entryPrice,
   entryTime,
   target,
@@ -52,10 +55,16 @@ export function MarketChart({
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const targetLineRef = useRef<ReturnType<ISeriesApi<"Line">["createPriceLine"]> | null>(null);
+  const lastAppliedTimeRef = useRef(0);
 
   const data = useMemo(() => {
     const pts = [...history];
-    if (livePrice != null) {
+    const lastHistoryT = pts.length ? pts[pts.length - 1].t : 0;
+    if (liveTicks?.length) {
+      for (const tick of liveTicks) {
+        if (tick.t > lastHistoryT) pts.push(tick);
+      }
+    } else if (livePrice != null) {
       const lastT = pts.length ? pts[pts.length - 1].t : Math.floor(Date.now() / 1000);
       const t = lastT >= Math.floor(Date.now() / 1000) - 5 ? lastT : Math.floor(Date.now() / 1000);
       const existing = pts[pts.length - 1];
@@ -66,7 +75,7 @@ export function MarketChart({
       }
     }
     return pts;
-  }, [history, livePrice]);
+  }, [history, liveTicks, livePrice]);
 
   const lastT = data.length ? data[data.length - 1].t : Math.floor(Date.now() / 1000);
 
@@ -131,7 +140,7 @@ export function MarketChart({
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#6b7280",
         fontSize: 10,
-        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        fontFamily: "'Geist Mono', ui-monospace, monospace",
         attributionLogo: false,
       },
       grid: {
@@ -178,12 +187,38 @@ export function MarketChart({
     };
   }, [compact]);
 
+  const hasLiveTicks = (liveTicks?.length ?? 0) > 0;
+
+  // Base history: set once per query fetch
   useEffect(() => {
     if (!seriesRef.current) return;
+    const pts = history.map((p) => ({ time: p.t as UTCTimestamp, value: p.p }));
+    if (pts.length > 0) {
+      seriesRef.current.setData(pts);
+    } else {
+      seriesRef.current.setData([]);
+    }
+    lastAppliedTimeRef.current = history.length ? history[history.length - 1].t : 0;
+  }, [history]);
+
+  // Streaming ticks: append via update()
+  useEffect(() => {
+    if (!seriesRef.current || !hasLiveTicks) return;
+    const baseT = lastAppliedTimeRef.current;
+    for (const tick of liveTicks!) {
+      if (tick.t <= baseT) continue;
+      seriesRef.current.update({ time: tick.t as UTCTimestamp, value: tick.p });
+      lastAppliedTimeRef.current = tick.t;
+    }
+  }, [liveTicks, hasLiveTicks]);
+
+  // Fallback: classic mode when no liveTicks (setData on merged data with livePrice)
+  useEffect(() => {
+    if (!seriesRef.current || hasLiveTicks) return;
     seriesRef.current.setData(
       data.map((p) => ({ time: p.t as UTCTimestamp, value: p.p })),
     );
-  }, [data]);
+  }, [data, hasLiveTicks]);
 
   useEffect(() => {
     if (!markersRef.current) return;
@@ -209,10 +244,13 @@ export function MarketChart({
     }
   }, [target, seriesRef]);
 
+  // fitContent once on initial data load only
+  const didFitRef = useRef(false);
   useEffect(() => {
-    if (!chartRef.current || !data.length) return;
+    if (!chartRef.current || !history.length || didFitRef.current) return;
     chartRef.current.timeScale().fitContent();
-  }, [data.length]);
+    didFitRef.current = true;
+  }, [history.length]);
 
   if (!history.length) {
     return (
@@ -225,7 +263,10 @@ export function MarketChart({
     );
   }
 
-  const lastPrice = livePrice ?? (history.length ? history[history.length - 1].p : null);
+  const lastPrice =
+    (liveTicks?.length ? liveTicks[liveTicks.length - 1].p : null) ??
+    livePrice ??
+    (history.length ? history[history.length - 1].p : null);
 
   return (
     <div className="relative w-full">

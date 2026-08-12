@@ -22,7 +22,7 @@ import {
 
 const NAV = [
   { href: "/app", icon: LayoutDashboard, label: "Command" },
-  { href: "/app/charts", icon: CandlestickChart, label: "Charts" },
+  { href: "/app/markets", icon: CandlestickChart, label: "Markets" },
   { href: "/app/book", icon: BookOpen, label: "Book" },
   { href: "/app/vault", icon: Landmark, label: "Vault" },
   { href: "/app/fund", icon: ArrowDownToLine, label: "Fund" },

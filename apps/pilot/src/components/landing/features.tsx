@@ -60,7 +60,7 @@ export default function Features() {
           <h2 className="mt-3 font-display text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.15] tracking-[-0.02em] text-foreground">
             Everything you need, nothing you don&apos;t
           </h2>
-          <p className="mt-3 font-serif text-base leading-relaxed text-muted-foreground">
+          <p className="mt-3 font-sans text-base leading-relaxed text-muted-foreground">
             Zinger is a lean, opinionated trading agent for Polymarket CLOB.
             It pairs your risk rules with directional signals and executes on
             5m and 15m windows.
@@ -83,7 +83,7 @@ export default function Features() {
                 <h3 className="font-display text-[17px] font-medium tracking-tight text-foreground">
                   {f.title}
                 </h3>
-                <p className="mt-2 font-serif text-[14px] leading-relaxed text-muted-foreground">
+                <p className="mt-2 font-sans text-[14px] leading-relaxed text-muted-foreground">
                   {f.desc}
                 </p>
               </div>

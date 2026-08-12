@@ -18,7 +18,7 @@ export default function Cta() {
           <h2 className="font-display text-[clamp(1.75rem,4vw,2.75rem)] leading-[1.12] tracking-[-0.02em] text-foreground">
             Ready to trade on autopilot?
           </h2>
-          <p className="mx-auto mt-4 max-w-lg font-serif text-[16px] leading-relaxed text-muted-foreground">
+          <p className="mx-auto mt-4 max-w-lg font-sans text-[16px] leading-relaxed text-muted-foreground">
             Connect your wallet, set your bands, and start the session. Paper
             mode is free — live mode trades your Polymarket pUSD.
           </p>

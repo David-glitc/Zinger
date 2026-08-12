@@ -50,7 +50,7 @@ function MarketStripCard({
   const up = feed.lastPrice ?? Number(prices.up ?? 0);
 
   return (
-    <Link href="/app/charts" className="block w-[240px] shrink-0">
+    <Link href="/app/markets" className="block w-[240px] shrink-0">
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}

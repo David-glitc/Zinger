@@ -14,7 +14,7 @@ import { DepositPanel } from "@/components/dashboard/deposit-panel";
 
 export default function FundPage() {
   const { address, account, mode, busy, snap, liveAccountQuery } = useAppState();
-  const depositInfo = useDepositInfo();
+  const depositInfo = useDepositInfo(address);
   const deposit = useDeposit(address);
   const withdraw = useWithdraw(address);
   const confirm = useConfirmUsdcDeposit(address);

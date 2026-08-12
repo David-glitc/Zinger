@@ -5,9 +5,7 @@ import Hero from "@/components/landing/hero";
 import Features from "@/components/landing/features";
 import Stats from "@/components/landing/stats";
 import Faq from "@/components/landing/faq";
-import Cta from "@/components/landing/cta";
 import HowItWorks from "@/components/landing/how-it-works";
-import Waitlist from "@/components/landing/waitlist";
 
 export default function LandingPage() {
   return (
@@ -19,9 +17,7 @@ export default function LandingPage() {
       <Features />
       <HowItWorks />
       <Stats />
-      <Waitlist />
       <Faq />
-      <Cta />
       <footer className="border-t border-border py-8 text-center font-sans text-sm text-muted-foreground">
         <div className="mx-auto max-w-6xl px-6 sm:px-8">
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
@@ -31,7 +27,7 @@ export default function LandingPage() {
             <a href="#features" className="transition-colors hover:text-foreground">Features</a>
             <a href="#faq" className="transition-colors hover:text-foreground">FAQ</a>
             <span className="text-border">·</span>
-            <span>Powered by Polymarket CLOB</span>
+            <a href="/app" className="transition-colors hover:text-primary">Private access →</a>
           </div>
           <p className="mt-3 text-[12px] text-muted-foreground/70">
             Zinger v0.2 · Autonomous trading agent for Polymarket

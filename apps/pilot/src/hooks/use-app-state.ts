@@ -7,6 +7,7 @@ import { useAccessKind } from "@/hooks/use-access-kind";
 import {
   useEnsureAccount,
   useLiveAccount,
+  usePaperTick,
   usePilotSnapshot,
   useSessionToggle,
   useSyncLiveAccount,
@@ -27,6 +28,8 @@ export function useAppState() {
 
   const mode: Mode = account?.mode ?? "paper";
   const sessionRunning = !!account?.session?.running;
+
+  usePaperTick(address, mode === "paper" && sessionRunning);
 
   const busy =
     ensureAccount.isPending ||

@@ -17,8 +17,7 @@ export function useWalletAuth() {
   const queryClient = useQueryClient();
   const { address, chainId, isConnected, isConnecting, isReconnecting } = useAccount();
   const { disconnect } = useDisconnect();
-  const { mutate, isPending, isSuccess, isError, data, error, reset, variables } =
-    useConnectWallet();
+  const { mutate, isPending, isSuccess, isError, data, error, reset } = useConnectWallet();
   const lastSynced = useRef<string | null>(null);
 
   const normalizedAddress = address?.toLowerCase() ?? null;
@@ -40,7 +39,7 @@ export function useWalletAuth() {
     if (!isConnected || !normalizedAddress) return "disconnected";
     if (isPending) return "syncing";
     if (isError) return "error";
-    if (isSuccess && variables?.address === normalizedAddress) return "ready";
+    if (isSuccess || lastSynced.current === normalizedAddress) return "ready";
     return "syncing";
   }, [
     isConnected,
@@ -50,7 +49,6 @@ export function useWalletAuth() {
     isPending,
     isError,
     isSuccess,
-    variables?.address,
   ]);
 
   function disconnectWallet() {

@@ -1,30 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { kv } from "@vercel/kv";
+import { addToWaitlist, getWaitlistCount } from "@/lib/waitlist-db";
+import { rateLimit } from "@/lib/rate-limit";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const EMAILS_KEY = "waitlist:emails";
-const HANDLES_KEY = "waitlist:handles";
-
-function storageConfigured() {
-  return Boolean(
-    process.env.KV_REST_API_URL &&
-      process.env.KV_REST_API_TOKEN &&
-      process.env.KV_URL,
-  );
-}
 
 export async function POST(request: NextRequest) {
-  if (!storageConfigured()) {
-    return NextResponse.json(
-      { ok: false, error: "storage_unavailable" },
-      { status: 503 },
-    );
+  const allowed = await rateLimit(request, 3, 60 * 60 * 1000, "rl:waitlist");
+  if (!allowed) {
+    return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
   }
 
-  let body: Record<string, unknown> | null = null;
+  let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
@@ -32,50 +20,28 @@ export async function POST(request: NextRequest) {
   }
 
   const email = String(body?.email ?? "").trim().toLowerCase();
-  const xHandle = String(body?.xHandle ?? "")
-    .trim()
-    .replace(/^@+/, "");
+  const xHandle = String(body?.xHandle ?? "").trim().replace(/^@+/, "");
 
   if (!EMAIL_RE.test(email)) {
-    return NextResponse.json(
-      { ok: false, error: "invalid_email" },
-      { status: 400 },
-    );
+    return NextResponse.json({ ok: false, error: "invalid_email" }, { status: 400 });
   }
 
   try {
-    const existing = await kv.sismember(EMAILS_KEY, email);
-    if (existing) {
-      return NextResponse.json({ ok: true, already: true }, { status: 200 });
-    }
-
-    const entry = { email, xHandle, ts: Date.now() };
-    await kv
-      .multi()
-      .sadd(EMAILS_KEY, email)
-      .sadd(HANDLES_KEY, xHandle || email)
-      .hset(`waitlist:entry:${email}`, entry)
-      .lpush(`waitlist:recent`, JSON.stringify(entry))
-      .ltrim(`waitlist:recent`, 0, 499)
-      .exec();
-
-    return NextResponse.json({ ok: true }, { status: 201 });
-  } catch {
+    const result = await addToWaitlist(email, xHandle);
+    return NextResponse.json({ ok: true, ...result }, { status: result.already ? 200 : 201 });
+  } catch (err) {
     return NextResponse.json(
-      { ok: false, error: "storage_unavailable" },
-      { status: 503 },
+      { ok: false, error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
     );
   }
 }
 
 export async function GET() {
-  if (!storageConfigured()) {
-    return NextResponse.json({ ok: false, count: 0 }, { status: 200 });
-  }
   try {
-    const count = await kv.scard(EMAILS_KEY);
-    return NextResponse.json({ ok: true, count: count ?? 0 }, { status: 200 });
+    const count = await getWaitlistCount();
+    return NextResponse.json({ ok: true, count });
   } catch {
-    return NextResponse.json({ ok: false, count: 0 }, { status: 200 });
+    return NextResponse.json({ ok: true, count: 0 });
   }
 }

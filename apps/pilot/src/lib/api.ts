@@ -311,6 +311,81 @@ export async function getMarketDetail(slug: string): Promise<MarketDetail> {
   };
 }
 
+export type DepthLevel = { price: number; size: number; value: number; cum: number };
+
+export type OrderBookDepth = {
+  bids: DepthLevel[];
+  asks: DepthLevel[];
+  bestBid: number;
+  bestAsk: number;
+  spread: number;
+  spreadPct: number;
+  mid: number;
+  totalBidVol: number;
+  totalAskVol: number;
+  imbalance: number;
+  bidCount: number;
+  askCount: number;
+};
+
+/** CLOB order book depth for one outcome token (raw CLOB /book normalized). */
+export async function getOrderBook(tokenId: string): Promise<OrderBookDepth> {
+  const data = await proxyFetch<{ bids?: Array<{ price: string; size: string }>; asks?: Array<{ price: string; size: string }> }>(
+    `/api/proxy/clob/book?token_id=${encodeURIComponent(tokenId)}`,
+  );
+
+  const bids: DepthLevel[] = (data?.bids ?? [])
+    .map((b) => ({ price: parseFloat(b.price), size: parseFloat(b.size), value: 0, cum: 0 }))
+    .filter((b) => Number.isFinite(b.price) && Number.isFinite(b.size) && b.size > 0)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, 12);
+  const asks: DepthLevel[] = (data?.asks ?? [])
+    .map((a) => ({ price: parseFloat(a.price), size: parseFloat(a.size), value: 0, cum: 0 }))
+    .filter((a) => Number.isFinite(a.price) && Number.isFinite(a.size) && a.size > 0)
+    .sort((a, b) => a.price - b.price)
+    .slice(0, 12);
+
+  let cumBid = 0;
+  for (const b of bids) {
+    cumBid += b.size;
+    b.cum = cumBid;
+    b.value = b.price * b.size;
+  }
+  let cumAsk = 0;
+  for (const a of asks) {
+    cumAsk += a.size;
+    a.cum = cumAsk;
+    a.value = a.price * a.size;
+  }
+
+  const bestBid = bids[0]?.price || 0;
+  const bestAsk = asks[0]?.price || 0;
+  const spread = bestBid > 0 && bestAsk > 0 ? bestAsk - bestBid : 0;
+  const mid = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : bestBid || bestAsk || 0;
+  const spreadPct = mid > 0 && spread > 0 ? (spread / mid) * 100 : 0;
+
+  const totalBidVol = bids.reduce((s, b) => s + b.value, 0);
+  const totalAskVol = asks.reduce((s, a) => s + a.value, 0);
+  const imbalance = totalBidVol + totalAskVol > 0
+    ? (totalBidVol - totalAskVol) / (totalBidVol + totalAskVol)
+    : 0;
+
+  return {
+    bids,
+    asks,
+    bestBid,
+    bestAsk,
+    spread,
+    spreadPct,
+    mid,
+    totalBidVol,
+    totalAskVol,
+    imbalance,
+    bidCount: bids.length,
+    askCount: asks.length,
+  };
+}
+
 /** Pick a CLOB interval/fidelity for a market duration. */
 export function chartResolution(duration: string | null | undefined) {
   const d = String(duration || "").toLowerCase();

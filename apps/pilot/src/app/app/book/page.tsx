@@ -41,7 +41,7 @@ function relTime(ts: number | null | undefined) {
 
 export default function BookPage() {
   const { snap, account, mode, liveAccountQuery, sessionRunning, isLoading } = useAppState();
-  const depositInfo = useDepositInfo();
+  const depositInfo = useDepositInfo(account?.wallet);
   const liveAcct = liveAccountQuery.data || snap?.liveAccount || null;
   const portfolio = usePortfolio(snap, mode, liveAcct);
   const { opens, events, trades } = portfolio;

@@ -221,10 +221,10 @@ export default function CommandPage() {
         <div className="flex items-center justify-between">
           <SectionLabel>Markets</SectionLabel>
           <Link
-            href="/app/charts"
+            href="/app/markets"
             className="inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline"
           >
-            Full charts <ArrowUpRight className="size-3" />
+            Full markets <ArrowUpRight className="size-3" />
           </Link>
         </div>
         <MarketStrip

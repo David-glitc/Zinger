@@ -10,9 +10,9 @@ export class ApiError extends Error {
   }
 }
 
-export async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function doFetch<T>(base: string, path: string, init?: RequestInit): Promise<T> {
   const isMutation = init?.method && init.method !== "GET";
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${base}${path}`, {
     ...init,
     cache: isMutation ? undefined : "no-store",
     headers: {
@@ -28,4 +28,14 @@ export async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T>
     );
   }
   return data as T;
+}
+
+/** Fetch from the core backend API (signals, markets, price history). */
+export function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  return doFetch<T>(API_BASE, path, init);
+}
+
+/** Fetch from the pilot app's own API routes (MongoDB-backed accounts). */
+export function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  return doFetch<T>("", path, init);
 }

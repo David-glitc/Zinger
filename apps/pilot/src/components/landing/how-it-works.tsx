@@ -64,7 +64,7 @@ export default function HowItWorks() {
               <h3 className="mt-4 font-display text-[18px] font-medium tracking-tight text-foreground">
                 {s.title}
               </h3>
-              <p className="mt-2 font-serif text-[14px] leading-relaxed text-muted-foreground">
+              <p className="mt-2 font-sans text-[14px] leading-relaxed text-muted-foreground">
                 {s.desc}
               </p>
             </motion.div>

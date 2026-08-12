@@ -9,6 +9,7 @@ import { motion } from "motion/react";
 import { RefreshCw, Copy, Check, Wallet, Activity, AlertTriangle } from "lucide-react";import { useState } from "react";
 import { PageHeading, Stat, GlassPanel, SectionLabel } from "@/components/app/app-ui";
 import { GeoblockAlert } from "@/components/dashboard/geoblock-status";
+import { ClobProvisionPanel } from "@/components/dashboard/clob-provision-panel";
 import { Button } from "@/components/ui/button";
 
 function kv(key: string, value: React.ReactNode) {
@@ -24,7 +25,7 @@ function kv(key: string, value: React.ReactNode) {
 
 export default function VaultPage() {
   const { account, mode, busy, liveAccountQuery, syncLive, snap } = useAppState();
-  const depositInfo = useDepositInfo();
+  const depositInfo = useDepositInfo(account?.wallet);
   const deposits = useDeposits(account?.wallet ?? null);
   const liveAcct = liveAccountQuery.data || snap?.liveAccount || null;
   const [copied, setCopied] = useState(false);
@@ -105,6 +106,8 @@ export default function VaultPage() {
               </dl>
             </GlassPanel>
           </section>
+
+          {account?.wallet ? <ClobProvisionPanel address={account.wallet} /> : null}
 
           <section className="space-y-2.5">
             <SectionLabel>Funding ledger</SectionLabel>

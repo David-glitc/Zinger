@@ -2,22 +2,16 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { Key, ArrowRight, Loader2, Sparkles, PlayCircle, Mail } from "lucide-react";
+import { Key, ArrowRight, Loader2, Sparkles, PlayCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { storeToken, clearToken, readToken } from "@/lib/access";
 
 interface AccessGateProps {
   children: React.ReactNode;
 }
 
-function storeToken(token: string) {
-  document.cookie = `zg_access=${token};path=/;max-age=${90 * 24 * 60 * 60};SameSite=Lax;secure`;
-}
-
 async function verifyStoredToken(): Promise<boolean> {
-  const cookies = document.cookie.split("; ");
-  const tokenCookie = cookies.find((c) => c.startsWith("zg_access="));
-  if (!tokenCookie) return false;
-  const token = tokenCookie.split("=")[1];
+  const token = readToken();
   if (!token) return false;
 
   try {
@@ -32,19 +26,13 @@ async function verifyStoredToken(): Promise<boolean> {
   }
 }
 
-function clearToken() {
-  document.cookie = "zg_access=;path=/;max-age=0";
-}
-
 export function AccessGate({ children }: AccessGateProps) {
   const [granted, setGranted] = useState<boolean | null>(null);
   const [accessKind, setAccessKind] = useState<"full" | "paper" | null>(null);
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
-  const [showRecovery, setShowRecovery] = useState(false);
-  const [recoveryEmail, setRecoveryEmail] = useState("");
-  const [recoveryStatus, setRecoveryStatus] = useState<"idle" | "loading" | "sent" | "notFound">("idle");
+  const [showCode, setShowCode] = useState(false);
 
   useEffect(() => {
     verifyStoredToken().then((valid) => {
@@ -140,22 +128,6 @@ export function AccessGate({ children }: AccessGateProps) {
     }
   }
 
-  async function handleRecovery(e: React.FormEvent) {
-    e.preventDefault();
-    setRecoveryStatus("loading");
-    try {
-      const res = await fetch(`/api/access?email=${encodeURIComponent(recoveryEmail.trim().toLowerCase())}`);
-      const data = (await res.json()) as { ok: boolean; code?: string };
-      if (data.ok && data.code) {
-        setRecoveryStatus("sent");
-      } else {
-        setRecoveryStatus("notFound");
-      }
-    } catch {
-      setRecoveryStatus("notFound");
-    }
-  }
-
   if (granted === null) {
     return (
       <div className="flex min-h-svh items-center justify-center">
@@ -188,15 +160,66 @@ export function AccessGate({ children }: AccessGateProps) {
           </motion.div>
 
           <h1 className="mt-4 font-display text-[20px] font-medium tracking-[-0.02em] text-foreground">
-            Alpha access
+            Welcome to Zinger
           </h1>
           <p className="mx-auto mt-2 max-w-[280px] font-sans text-[13px] leading-relaxed text-muted-foreground">
-            Zinger is invite-only for live trading. Enter your access code, or try paper mode with simulated funds.
+            Live trading is invite-only. Try paper mode free right now, or enter your access code.
           </p>
 
-          {!showRecovery ? (
+          {!showCode ? (
             <>
-              <form onSubmit={submitCode} className="mt-5">
+              <button
+                onClick={handlePaperMode}
+                disabled={status === "loading"}
+                className={cn(
+                  "mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl py-2.5 font-mono text-[12px] uppercase tracking-[0.14em] text-white",
+                  "zg-volt-btn",
+                  status === "loading" && "opacity-60",
+                )}
+              >
+                {status === "loading" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" /> Setting up…
+                  </>
+                ) : (
+                  <>
+                    <PlayCircle className="size-4" /> Try paper mode — free
+                  </>
+                )}
+              </button>
+              <p className="mt-2 font-sans text-[11px] text-muted-foreground">
+                No code, no deposit. Simulated funds to test the agent.
+              </p>
+
+              <div className="mt-4 flex items-center gap-3">
+                <span className="h-px flex-1 bg-border/50" />
+                <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground/60">
+                  or
+                </span>
+                <span className="h-px flex-1 bg-border/50" />
+              </div>
+
+              <button
+                onClick={() => setShowCode(true)}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 font-mono text-[12px] uppercase tracking-[0.14em] text-foreground transition-colors hover:bg-muted/50"
+              >
+                <Key className="size-4 text-primary" />
+                I have an access code
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCode(false);
+                }}
+                className="mt-3 mb-1 font-mono text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors"
+              >
+                ← Try paper mode instead
+              </button>
+
+              <form onSubmit={submitCode} className="mt-1">
                 <div className="relative">
                   <input
                     type="text"
@@ -245,78 +268,7 @@ export function AccessGate({ children }: AccessGateProps) {
                   {error}
                 </motion.p>
               ) : null}
-
-              <div className="mt-4 border-t border-border/50 pt-4">
-                <button
-                  onClick={handlePaperMode}
-                  disabled={status === "loading"}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 font-mono text-[12px] uppercase tracking-[0.14em] text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
-                >
-                  <PlayCircle className="size-4 text-primary" />
-                  Try paper mode — no code needed
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowRecovery(true)}
-                className="mt-3 font-mono text-[10px] text-muted-foreground/70 hover:text-primary transition-colors"
-              >
-                <Mail className="mr-1 inline size-3" />
-                Lost your access code?
-              </button>
             </>
-          ) : (
-            <div className="mt-5">
-              <p className="mb-3 font-sans text-[12px] text-muted-foreground">
-                Enter the email you signed up with. We will look up your code.
-              </p>
-              <form onSubmit={handleRecovery}>
-                <input
-                  type="email"
-                  value={recoveryEmail}
-                  onChange={(e) => {
-                    setRecoveryEmail(e.target.value);
-                    if (recoveryStatus !== "idle") setRecoveryStatus("idle");
-                  }}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  className="zg-num w-full"
-                  aria-label="Email for code recovery"
-                />
-                <button
-                  type="submit"
-                  disabled={recoveryStatus === "loading" || !recoveryEmail.trim()}
-                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl py-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-white zg-volt-btn disabled:opacity-60"
-                >
-                  {recoveryStatus === "loading" ? (
-                    <>
-                      <Loader2 className="size-3.5 animate-spin" /> Looking up…
-                    </>
-                  ) : (
-                    "Find my code"
-                  )}
-                </button>
-              </form>
-
-              {recoveryStatus === "sent" ? (
-                <motion.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 font-mono text-[11px] text-[var(--success)]">
-                  Code found. Check your inbox from when you joined the waitlist.
-                </motion.p>
-              ) : recoveryStatus === "notFound" ? (
-                <motion.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 font-mono text-[11px] text-destructive">
-                  No code found for that email. Try paper mode or join the waitlist.
-                </motion.p>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => { setShowRecovery(false); setRecoveryStatus("idle"); }}
-                className="mt-4 font-mono text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors"
-              >
-                ← Back
-              </button>
-            </div>
           )}
         </div>
 

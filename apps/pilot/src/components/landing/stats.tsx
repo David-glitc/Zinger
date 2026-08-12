@@ -2,57 +2,31 @@
 
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { CountUp } from "@/components/animations/count-up";
 
-function CountUp({ end, suffix = "", prefix = "" }: { end: number; suffix?: string; prefix?: string }) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    let raf: number;
-    const start = performance.now();
-    const dur = 1500;
-    function tick(now: number) {
-      const t = Math.min((now - start) / dur, 1);
-      setV(Math.floor(t * end));
-      if (t < 1) raf = requestAnimationFrame(tick);
-    }
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [end]);
-  return <>{prefix}{v.toLocaleString()}{suffix}</>;
-}
-
-interface StatsData {
-  trades: number;
-  winRate: number | null;
-  equity: number;
-  openCount: number;
+interface LiveStats {
+  tvl: number;
+  totalUsers: number;
+  activeSessions: number;
+  liveUsers: number;
+  clobProvisioned: number;
 }
 
 export default function Stats() {
-  const [data, setData] = useState<StatsData | null>(null);
+  const [data, setData] = useState<LiveStats | null>(null);
 
   useEffect(() => {
-    fetch("/api/intelligence")
+    fetch("/api/stats")
       .then((r) => r.json())
-      .then((d) => {
-        if (d?.paper) {
-          const wins = d.paper.wins || 0;
-          const losses = d.paper.losses || 0;
-          setData({
-            trades: wins + losses,
-            winRate: d.paper.winRate,
-            equity: d.paper.equity,
-            openCount: d.paper.openCount,
-          });
-        }
-      })
+      .then((d) => setData(d))
       .catch(() => {});
   }, []);
 
   const stats = [
-    { value: data?.trades ?? 0, label: "Trades executed", suffix: "+" },
-    { value: data?.winRate != null ? Math.round(data.winRate * 100) : 0, label: "Avg win rate", suffix: "%" },
-    { value: Math.round(data?.equity ?? 0), label: "Paper equity", prefix: "$" },
-    { value: 5, label: "Window durations", suffix: "m+" },
+    { value: Math.round(data?.tvl ?? 0), label: "Total value deposited", prefix: "$" },
+    { value: data?.totalUsers ?? 0, label: "Wallets connected", suffix: "" },
+    { value: data?.clobProvisioned ?? 0, label: "CLOB accounts provisioned", suffix: "" },
+    { value: data?.activeSessions ?? 0, label: "Active trading sessions", suffix: "" },
   ];
 
   return (
@@ -69,9 +43,9 @@ export default function Stats() {
               className="text-center"
             >
               <p className="font-display text-[clamp(2rem,5vw,3.25rem)] leading-none tracking-[-0.03em] text-foreground">
-                <CountUp end={s.value} suffix={s.suffix} prefix={s.prefix} />
+                <CountUp value={s.value} decimals={0} prefix={s.prefix} suffix={s.suffix} />
               </p>
-              <p className="mt-2 font-serif text-base text-muted-foreground">
+              <p className="mt-2 font-sans text-base text-muted-foreground">
                 {s.label}
               </p>
             </motion.div>
