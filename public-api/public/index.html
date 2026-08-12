@@ -1,0 +1,1567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Zinger · Public</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000000;--fg:#f4f7ff;--muted:#8b93a7;--line:rgba(79,131,255,.22);--panel:rgba(10,10,12,.92);
+  --brand:#2e6cff;--brand-hover:#4f83ff;--brand-soft:rgba(46,108,255,.18);
+  --up:#4f83ff;--dn:#ff4d6a;--warn:#f0c14a;--cyan:#4f83ff;
+  --btc:#2e6cff;--eth:#5aa7ff;
+  --sans:"Poppins",ui-sans-serif,system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --radius-sm:8px;--radius-md:12px;--radius-lg:18px;
+  --ease-out:cubic-bezier(.16,1,.3,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;background:#000;color:var(--fg);font-family:var(--sans);font-size:16px}
+@media(max-width:720px){html,body{font-size:15px}}
+body{background:#000;line-height:1.55}
+button,input,select{font:inherit;color:inherit}
+button{
+  cursor:pointer;border:1px solid var(--line);background:rgba(18,18,22,.95);
+  padding:0.45rem 0.85rem;border-radius:var(--radius-sm);
+  transition:background-color 120ms var(--ease-out),border-color 120ms var(--ease-out),transform 120ms var(--ease-out);
+}
+button:hover{border-color:var(--brand-hover);background:rgba(46,108,255,.14)}
+button:active{transform:translateY(1px)}
+button:focus-visible{outline:2px solid var(--brand-hover);outline-offset:2px}
+button.active,button[aria-pressed="true"]{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+a{color:var(--brand-hover);text-decoration:none}
+a:hover{text-decoration:underline}
+.shell{max-width:1680px;margin:0 auto;padding:0 1rem 2.5rem}
+/* top bar */
+.topbar{
+  position:sticky;top:0;z-index:40;backdrop-filter:blur(12px);
+  background:rgba(0,0,0,.88);border:1px solid var(--line);
+  margin:0 -1rem 1rem;padding:0.65rem 1rem;
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  border-radius:0 0 var(--radius-lg) var(--radius-lg);
+}
+.brand{font-weight:800;font-size:1.35rem;letter-spacing:-0.03em}
+.brand em{font-style:normal;color:var(--muted);font-weight:500;font-size:0.72rem;margin-left:0.55rem;letter-spacing:0.08em;text-transform:uppercase}
+.nav{display:flex;gap:0.25rem;flex-wrap:wrap}
+.nav button{border:none;background:transparent;color:var(--muted);font-weight:500;font-size:0.85rem;padding:0.4rem 0.75rem}
+.nav button:hover{color:var(--fg);background:var(--brand-soft)}
+.nav button.active{color:#fff;background:var(--brand)}
+.status{display:flex;gap:0.75rem;align-items:center;font-family:var(--mono);font-size:0.7rem;color:var(--muted)}
+.status .ok{color:var(--cyan)}.status .bad{color:var(--dn)}.status .warn{color:var(--warn)}
+/* live tick strip — mirror main app */
+.live-tick-strip{
+  display:flex;align-items:stretch;gap:0;overflow-x:auto;
+  border:1px solid var(--line);background:rgba(8,8,10,.96);margin-bottom:1rem;
+  border-radius:var(--radius-lg);backdrop-filter:blur(12px) saturate(120%);
+  scrollbar-width:thin;
+}
+.live-tick{
+  flex:0 0 auto;min-width:6.5rem;padding:0.5rem 0.85rem;
+  border-right:1px solid var(--line);font-family:var(--mono);
+}
+.live-tick .sym{font-size:0.58rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#71717a}
+.live-tick .px{
+  font-size:0.95rem;font-weight:700;letter-spacing:-0.02em;color:#fafafa;
+  transition:color 80ms linear,background-color 80ms linear;
+  padding:0 0.15rem;border-radius:2px;line-height:1.15;font-variant-numeric:tabular-nums;
+}
+.live-tick .px.flash-up{color:#fff;background:var(--brand)}
+.live-tick .px.flash-down{color:#fff;background:var(--dn)}
+.live-tick .chg{font-size:0.58rem;font-weight:600}
+.live-tick .chg.up{color:var(--up)}.live-tick .chg.down{color:var(--dn)}
+.live-tick.cycle .px{font-size:1.05rem;color:var(--brand-hover);font-variant-numeric:tabular-nums}
+.live-tick-live{
+  display:flex;align-items:center;gap:0.4rem;padding:0.45rem 0.75rem;margin-left:auto;
+  flex-shrink:0;font-size:0.55rem;letter-spacing:0.12em;font-weight:700;color:var(--brand-hover);font-family:var(--mono);
+}
+.live-tick-live .dot{width:6px;height:6px;border-radius:50%;background:var(--brand);animation:pulse 1.2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* layout */
+.grid{display:grid;grid-template-columns:1.55fr 1fr;gap:0.85rem}
+@media(max-width:980px){.grid{grid-template-columns:1fr}}
+.panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;
+  backdrop-filter:blur(14px) saturate(120%);
+  box-shadow:inset 0 1px 0 rgba(79,131,255,.06),0 16px 44px rgba(0,0,0,.45);
+}
+.ph{
+  display:flex;justify-content:space-between;align-items:center;gap:0.75rem;
+  padding:0.65rem 0.85rem;border-bottom:1px solid var(--line);
+  font-size:0.65rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);
+}
+.pb{padding:0.85rem}
+.stack{display:flex;flex-direction:column;gap:0.85rem}
+.chart-wrap{position:relative;height:560px}
+.chart-wrap.sm{height:320px}
+.chart-wrap canvas{width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+.chart-tip{
+  position:absolute;pointer-events:none;z-index:3;display:none;
+  background:rgba(0,0,0,.94);border:1px solid var(--line);padding:0.45rem 0.6rem;
+  font-family:var(--mono);font-size:0.7rem;line-height:1.45;white-space:nowrap;
+}
+.chart-tools{display:flex;gap:0.35rem;flex-wrap:wrap;align-items:center}
+.chart-tools label{display:flex;align-items:center;gap:0.3rem;font-size:0.7rem;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer}
+.chart-tools input{accent-color:var(--brand)}
+.legend{display:flex;gap:0.85rem;font-family:var(--mono);font-size:0.68rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:2px;margin-right:0.3rem;vertical-align:middle}
+.sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.65rem}
+@media(max-width:720px){.sig-grid{grid-template-columns:1fr}}
+.sig-card{border:1px solid var(--line);background:rgba(0,0,0,.72);padding:0.85rem;border-radius:var(--radius-md)}
+.sig-card .dir{font-size:1.6rem;font-weight:800;letter-spacing:-0.03em;line-height:1.1}
+.up{color:var(--up)}.dn{color:var(--dn)}.warn{color:var(--warn)}.mute{color:var(--muted)}
+.tags{display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.55rem}
+.tag{border:1px solid var(--line);padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--muted);font-family:var(--mono);border-radius:999px}
+.canvas-wrap{height:260px} .canvas-wrap canvas{width:100%;height:100%;display:block;cursor:pointer}
+.comp-list{display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.65rem}
+.comp{border:1px solid var(--line);padding:0.55rem;background:rgba(0,0,0,.72);cursor:pointer;text-align:left;border-radius:var(--radius-md)}
+.comp:hover,.comp.active{border-color:var(--brand)}
+.comp .l{font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em}
+.comp .v{font-family:var(--mono);font-size:0.9rem;font-weight:600;margin-top:0.15rem}
+.mkts{display:flex;flex-direction:column;gap:0.4rem;max-height:340px;overflow:auto}
+.mkt{
+  display:grid;grid-template-columns:1.3fr .65fr .65fr .7fr;gap:0.5rem;align-items:center;
+  padding:0.55rem 0.65rem;border:1px solid var(--line);background:rgba(0,0,0,.72);cursor:pointer;
+  font-family:var(--mono);font-size:0.75rem;
+  border-radius:var(--radius-md);
+}
+.mkt:hover,.mkt.active{border-color:var(--brand)}
+.mkt .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.68rem;color:var(--muted)}
+.mkt .win{color:var(--brand-hover);font-weight:700;font-variant-numeric:tabular-nums}
+.models{display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;font-size:0.75rem}
+.model{border:1px solid var(--line);padding:0.55rem;background:rgba(0,0,0,.72);border-radius:var(--radius-md)}
+.model .l{font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em}
+.doc{
+  font-size:0.9rem;line-height:1.6;color:#c9d2e4;max-width:56rem;
+}
+.doc h2{font-size:1.25rem;margin:1.6rem 0 0.55rem;color:#fff;scroll-margin-top:5.5rem}
+.doc h2:first-child{margin-top:0.25rem}
+.doc h3{font-size:1rem;margin:1.1rem 0 0.4rem;color:#eee;scroll-margin-top:5.5rem}
+.doc p,.doc li{margin-bottom:0.45rem}
+.doc ul,.doc ol{padding-left:1.25rem}
+.doc code,.doc pre{font-family:var(--mono);font-size:0.8rem}
+.doc code{background:rgba(79,131,255,.10);padding:0.08rem 0.3rem;border-radius:4px}
+.doc pre{background:rgba(0,0,0,.85);border:1px solid var(--line);padding:0.85rem;overflow:auto;margin:0.5rem 0 0.85rem;border-radius:var(--radius-md)}
+.doc pre code{background:none;padding:0}
+.doc table{width:100%;border-collapse:collapse;font-size:0.82rem;margin:0.5rem 0 1rem}
+.doc th,.doc td{border:1px solid var(--line);padding:0.45rem 0.55rem;text-align:left;vertical-align:top}
+.doc th{color:var(--muted);font-weight:600;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em}
+.doc td code{white-space:nowrap}
+.doc .flow{
+  font-family:var(--mono);font-size:0.78rem;line-height:1.7;color:var(--muted);
+  background:rgba(0,0,0,.85);border:1px solid var(--line);border-radius:var(--radius-md);
+  padding:0.85rem;overflow:auto;white-space:pre;margin:0.5rem 0 0.85rem;
+}
+.doc-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:0.85rem;align-items:start}
+@media(max-width:960px){.doc-layout{grid-template-columns:1fr}.doc-toc{position:static;max-height:none;flex-direction:row;flex-wrap:wrap}}
+.doc-toc{
+  position:sticky;top:4.6rem;display:flex;flex-direction:column;gap:0.1rem;
+  padding:0.75rem;max-height:calc(100vh - 6rem);overflow:auto;
+}
+.doc-toc .toc-title{font-size:0.62rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);padding:0.2rem 0.6rem 0.5rem}
+.doc-toc a{display:block;padding:0.34rem 0.6rem;border-radius:var(--radius-sm);color:var(--muted);font-size:0.8rem;line-height:1.35}
+.doc-toc a:hover{background:var(--brand-soft);color:var(--fg);text-decoration:none}
+.doc-toc a.active{background:var(--brand);color:#fff;font-weight:600}
+.help{
+  border-left:2px solid var(--brand);padding:0.65rem 0.85rem;margin-bottom:1rem;
+  background:rgba(46,108,255,.08);color:var(--muted);font-size:0.85rem;border-radius:0 var(--radius-md) var(--radius-md) 0;
+}
+.help strong{color:var(--fg);font-weight:600}
+.footer{margin-top:1.25rem;padding-top:0.85rem;border-top:1px solid var(--line);color:var(--muted);font-size:0.75rem;display:flex;justify-content:space-between;gap:0.75rem;flex-wrap:wrap}
+.hidden{display:none!important}
+.mono{font-family:var(--mono)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;font-size:0.78rem;margin-top:0.55rem}
+@media(max-width:520px){.row2{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar" role="banner">
+    <div class="brand">ZINGER<em>Playground</em></div>
+    <nav class="nav" role="tablist" aria-label="Primary">
+      <button role="tab" class="active" data-tab="live" aria-selected="true">Live</button>
+      <button role="tab" data-tab="signals" aria-selected="false">Signals</button>
+      <button role="tab" data-tab="markets" aria-selected="false">Markets</button>
+      <button role="tab" data-tab="docs" aria-selected="false">Docs</button>
+      <button role="tab" data-tab="client" aria-selected="false">Build client</button>
+    </nav>
+    <div class="status" aria-live="polite">
+      <span id="st-api">API …</span>
+      <span id="st-stream">stream …</span>
+      <span id="st-feed">feed …</span>
+    </div>
+  </header>
+
+  <div class="live-tick-strip" id="tick-strip" aria-label="Live market ticks"></div>
+
+  <!-- LIVE -->
+  <section id="view-live" class="stack" role="tabpanel">
+    <div class="help"><strong>What you’re looking at:</strong> live BTC/ETH spot in USD, Polymarket window <em>price to beat</em> (Chainlink open for this 5m window), countdown, and pipeline signals. UP wins if spot finishes ≥ the to-beat line. Bring your own execution — this page never places orders.</div>
+    <div class="grid">
+      <div class="stack">
+        <div class="panel">
+          <div class="ph">
+            <span>Spot · BTC + ETH · Polymarket to-beat</span>
+            <div class="chart-tools">
+              <label><input type="checkbox" id="show-btc" checked> BTC</label>
+              <label><input type="checkbox" id="show-eth" checked> ETH</label>
+              <label><input type="checkbox" id="show-target" checked> PM to-beat</label>
+              <button type="button" id="btn-reset-zoom" title="Reset zoom">Reset</button>
+            </div>
+          </div>
+          <div class="pb">
+            <div class="legend" style="margin-bottom:0.5rem">
+              <span><i style="background:var(--btc)"></i>BTC USD</span>
+              <span><i style="background:var(--eth)"></i>ETH USD</span>
+              <span><i style="background:var(--warn);height:0;border-top:2px dashed var(--warn)"></i>Window open (to beat)</span>
+              <span class="mute" id="zoom-hint">dense ticks · dual axis · wheel zoom · drag pan</span>
+            </div>
+            <div class="chart-wrap">
+              <div class="chart-tip" id="chart-tip"></div>
+              <canvas id="chart" aria-label="BTC and ETH normalized spot chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><span>Signal components</span>
+            <span>
+              <button type="button" data-sig="btc" class="sig-asset active" aria-pressed="true">BTC</button>
+              <button type="button" data-sig="eth" class="sig-asset" aria-pressed="false">ETH</button>
+            </span>
+          </div>
+          <div class="pb">
+            <div class="canvas-wrap"><canvas id="sig-canvas" aria-label="Signal component radar"></canvas></div>
+            <div class="comp-list" id="comp-list"></div>
+            <p id="comp-detail" class="mute" style="margin-top:0.55rem;font-size:0.8rem"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="panel">
+          <div class="ph"><span>Pipeline signals</span><span class="mute">action · TP · SL</span></div>
+          <div class="pb sig-grid">
+            <div class="sig-card" id="sig-btc"></div>
+            <div class="sig-card" id="sig-eth"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="ph"><span>Share prices · selected window</span><span id="book-slug" class="mute">—</span></div>
+          <div class="pb">
+            <div class="chart-wrap sm">
+              <div class="chart-tip" id="share-tip"></div>
+              <canvas id="share-chart" aria-label="UP and DOWN share prices"></canvas>
+            </div>
+            <div class="row2 mono">
+              <div>UP <strong class="up" id="up-mid">—</strong> <span class="mute" id="up-ba"></span></div>
+              <div>DOWN <strong class="dn" id="dn-mid">—</strong> <span class="mute" id="dn-ba"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="ph"><span>ML models</span><span id="ml-health" class="mute">—</span></div>
+          <div class="pb models" id="models"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SIGNALS -->
+  <section id="view-signals" class="stack hidden" role="tabpanel">
+    <div class="help"><strong>Published experiment bot paper</strong> — live paper book from the core bot on <code>zinger.kierkegaard.space</code> ($1k, max 10% cash/ticket, sweet entries 0.42–0.68, crypto taker fees). User-facing Pilot (wallet / deposit / rules / execution) is a <strong>separate app</strong> at <a href="https://usezinger.xyz">usezinger.xyz</a>.</div>
+    <div class="panel">
+      <div class="ph"><span>Bot paper book</span><span id="paper-status">starting…</span></div>
+      <div class="pb">
+        <div class="row2" style="grid-template-columns:repeat(5,1fr);margin-top:0">
+          <div class="model"><div class="l">Equity</div><strong class="mono" id="paper-equity">—</strong></div>
+          <div class="model"><div class="l">Cash</div><strong class="mono" id="paper-cash">—</strong></div>
+          <div class="model"><div class="l">Realized</div><strong class="mono" id="paper-realized">—</strong></div>
+          <div class="model"><div class="l">Win rate</div><strong class="mono" id="paper-wr">—</strong></div>
+          <div class="model"><div class="l">Open</div><strong class="mono" id="paper-open">—</strong></div>
+        </div>
+        <div class="row2">
+          <div>
+            <h3 style="font-size:.78rem;margin:.7rem 0 .35rem">Open bot positions</h3>
+            <div id="paper-positions" class="stack" style="gap:.4rem"></div>
+          </div>
+          <div>
+            <h3 style="font-size:.78rem;margin:.7rem 0 .35rem">Bot tape / events</h3>
+            <div id="paper-events" class="stack mono" style="gap:.35rem;font-size:.7rem"></div>
+          </div>
+        </div>
+        <div style="margin-top:.85rem">
+          <h3 style="font-size:.78rem;margin:0 0 .35rem">Closed trades (net of fees)</h3>
+          <div id="paper-trades" class="stack mono" style="gap:.35rem;font-size:.72rem"></div>
+        </div>
+        <p class="mute" style="font-size:.7rem;margin-top:.65rem">Source: experiment bot · <code>/api/v1/bot-paper</code> · fees <code>C×0.07×p×(1−p)</code>. Pilot product (separate) → <a href="https://usezinger.xyz">usezinger.xyz</a>.</p>
+      </div>
+    </div>
+    <div class="panel"><div class="ph">Latest envelope</div><div class="pb"><pre class="mono" id="sig-json" style="white-space:pre-wrap;font-size:0.75rem;color:var(--muted);max-height:420px;overflow:auto"></pre></div></div>
+  </section>
+
+  <!-- MARKETS -->
+  <section id="view-markets" class="stack hidden" role="tabpanel">
+    <div class="help"><strong>Windows</strong> are 5-minute Polymarket up/down markets. Countdown shows minutes:seconds left until settlement.</div>
+    <div class="panel">
+      <div class="ph"><span>Live windows</span><span id="mkt-count">0</span></div>
+      <div class="pb mkts" id="markets"></div>
+    </div>
+  </section>
+
+  <!-- DOCS -->
+  <section id="view-docs" class="stack hidden" role="tabpanel">
+    <div class="help"><strong>Protocol documentation</strong> — how the Zinger public signal protocol works end to end: data flow, window lifecycle, schemas, streams, and the rules an execution client must follow.</div>
+    <div class="doc-layout">
+      <nav class="doc-toc panel" id="doc-toc" aria-label="Documentation sections"></nav>
+      <div class="panel"><div class="pb doc" id="docs-body"></div></div>
+    </div>
+  </section>
+
+  <!-- CLIENT -->
+  <section id="view-client" class="stack hidden" role="tabpanel">
+    <div class="help"><strong>Agent handoff:</strong> choose a venue, copy the complete specification, and paste it into your coding agent.</div>
+    <div class="panel">
+      <div class="ph">
+        <span>Execution-engine build brief</span>
+        <span class="chart-tools">
+          <button type="button" class="venue-btn active" data-venue="polymarket" aria-pressed="true">Polymarket</button>
+          <button type="button" class="venue-btn" data-venue="kalshi" aria-pressed="false">Kalshi</button>
+          <button type="button" id="copy-agent-prompt">Copy for coding agent</button>
+        </span>
+      </div>
+      <div class="pb doc" id="client-body"></div>
+      <div class="pb" style="padding-top:0">
+        <pre class="mono" id="agent-prompt" style="white-space:pre-wrap;font-size:.72rem;color:var(--muted);max-height:360px;overflow:auto"></pre>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div>Playground · publishes experiment bot paper · Pilot → <a href="https://usezinger.xyz">usezinger.xyz</a> · Experiment → <a href="https://zinger.kierkegaard.space">zinger.kierkegaard.space</a></div>
+    <div class="mono">
+      <a href="/api/v1/bot-paper">/bot-paper</a> ·
+      <a href="/api/v1/predictions">/predictions</a> ·
+      <a href="/api/v1/predictions/stream">/stream</a>
+    </div>
+  </footer>
+</div>
+
+<script>
+const API = (() => {
+  const h = location.hostname;
+  if (h.includes('vercel') || h.startsWith('play.')) return 'https://zinger.kierkegaard.space/api/v1';
+  return '/api/v1';
+})();
+
+const state = {
+  tab: 'live',
+  sigAsset: 'btc',
+  activeComp: null,
+  ticks: { btc: [], eth: [] },
+  shareHist: { up: [], down: [] },
+  lastPx: { btc: null, eth: null, up: {}, down: {} },
+  pred: null,
+  slug: null,
+  show: { btc: true, eth: true, target: true },
+  zoom: { start: 0, end: 1 }, // fraction of tick window
+  drag: null,
+  hover: null,
+  esPred: null,
+  esSpotBtc: null,
+  esSpotEth: null,
+  clock: Date.now(),
+  pilotWallet: null,
+};
+let spotFrame = 0;
+
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d=2) => (n==null||Number.isNaN(+n)) ? '—' : Number(n).toFixed(d);
+const money = (n, d=2) => n==null ? '—' : '$' + Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+
+function fmtWindow(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m + ':' + String(r).padStart(2, '0');
+}
+
+function flashClass(el, up) {
+  if (!el) return;
+  el.classList.remove('flash-up','flash-down');
+  void el.offsetWidth;
+  el.classList.add(up ? 'flash-up' : 'flash-down');
+  setTimeout(() => el.classList.remove('flash-up','flash-down'), 220);
+}
+
+function setTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll('.nav [role="tab"]').forEach(b => {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  ['live','signals','markets','docs','client'].forEach(t => {
+    const el = $('view-' + t);
+    if (el) el.classList.toggle('hidden', t !== tab);
+  });
+  if (tab === 'signals') renderSigJson();
+  if (tab === 'markets') renderMarkets(state.pred?.markets || []);
+  location.hash = tab;
+  scrollTo(0, 0);
+}
+
+function setupCanvas(canvas) {
+  const parent = canvas.parentElement;
+  const dpr = devicePixelRatio || 1;
+  const W = parent.clientWidth, H = parent.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W, H };
+}
+
+function sliceTicks(arr) {
+  if (!arr.length) return [];
+  const a = Math.floor(state.zoom.start * (arr.length - 1));
+  const b = Math.max(a + 2, Math.ceil(state.zoom.end * (arr.length - 1)));
+  return arr.slice(a, b + 1);
+}
+
+function normalize(series) {
+  if (series.length < 2) return series.map(t => ({ ...t, n: 0 }));
+  const first = series[0].price;
+  return series.map(t => ({ ...t, n: ((t.price - first) / first) * 100 }));
+}
+
+function scheduleSpotDraw() {
+  if (spotFrame) return;
+  spotFrame = requestAnimationFrame(() => {
+    spotFrame = 0;
+    drawSpotChart();
+  });
+}
+
+function drawSpotChart() {
+  const canvas = $('chart');
+  const tip = $('chart-tip');
+  const { ctx, W, H } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, W, H);
+  const pad = { l: 72, r: 72, t: 28, b: 40 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+
+  const btcRaw = state.show.btc ? sliceTicks(state.ticks.btc) : [];
+  const ethRaw = state.show.eth ? sliceTicks(state.ticks.eth) : [];
+  if (btcRaw.length < 2 && ethRaw.length < 2) {
+    ctx.fillStyle = '#555'; ctx.font = '13px Poppins';
+    ctx.fillText('Waiting for live ticks…', pad.l, H / 2);
+    tip.style.display = 'none';
+    return;
+  }
+
+  const btcBeat = state.pred?.priceToBeat?.btc?.openPrice ?? null;
+  const ethBeat = state.pred?.priceToBeat?.eth?.openPrice ?? null;
+  const btcVals = btcRaw.map((t) => t.price);
+  const ethVals = ethRaw.map((t) => t.price);
+  if (state.show.target && btcBeat != null) btcVals.push(btcBeat);
+  if (state.show.target && ethBeat != null) ethVals.push(ethBeat);
+
+  const btcHi = btcVals.length ? Math.max(...btcVals) : 1;
+  const btcLo = btcVals.length ? Math.min(...btcVals) : 0;
+  const ethHi = ethVals.length ? Math.max(...ethVals) : 1;
+  const ethLo = ethVals.length ? Math.min(...ethVals) : 0;
+  const btcPad = Math.max((btcHi - btcLo) * 0.12, btcHi * 0.00025 || 1);
+  const ethPad = Math.max((ethHi - ethLo) * 0.12, ethHi * 0.00025 || 0.1);
+  let bHi = btcHi + btcPad, bLo = btcLo - btcPad;
+  let eHi = ethHi + ethPad, eLo = ethLo - ethPad;
+  if (bHi === bLo) { bHi += 1; bLo -= 1; }
+  if (eHi === eLo) { eHi += 0.5; eLo -= 0.5; }
+  const bRange = bHi - bLo;
+  const eRange = eHi - eLo;
+
+  // Dense grid: minor + major
+  const yDiv = 12;
+  ctx.font = '9px IBM Plex Mono';
+  for (let i = 0; i <= yDiv; i++) {
+    const y = pad.t + (plotH * i) / yDiv;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y);
+    ctx.strokeStyle = i % 2 === 0 ? '#1a1a20' : '#101014';
+    ctx.stroke();
+    if (i % 2 === 0) {
+      if (btcRaw.length) {
+        const bv = bHi - (bRange * i) / yDiv;
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#2e6cff';
+        ctx.fillText(money(bv, bv >= 1000 ? 0 : 2), pad.l - 6, y + 3);
+      }
+      if (ethRaw.length) {
+        const ev = eHi - (eRange * i) / yDiv;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#5aa7ff';
+        ctx.fillText(money(ev, 2), W - pad.r + 6, y + 3);
+      }
+    }
+  }
+
+  const base = btcRaw.length >= ethRaw.length ? btcRaw : ethRaw;
+  ctx.fillStyle = '#6b7280';
+  ctx.textAlign = 'center';
+  const xDiv = 10;
+  for (let i = 0; i <= xDiv; i++) {
+    const idx = Math.round((i / xDiv) * (base.length - 1));
+    const x = pad.l + (idx / Math.max(1, base.length - 1)) * plotW;
+    ctx.strokeStyle = '#121218';
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + plotH); ctx.stroke();
+    const t = new Date(base[idx].t);
+    ctx.fillText(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), x, H - 12);
+  }
+
+  // Header stats strip inside canvas
+  ctx.textAlign = 'left';
+  ctx.font = '10px IBM Plex Mono';
+  const bLast = btcRaw.slice(-1)[0]?.price;
+  const eLast = ethRaw.slice(-1)[0]?.price;
+  const hdr = [];
+  if (bLast != null) hdr.push(`BTC ${money(bLast, 0)}`);
+  if (btcBeat != null && bLast != null) hdr.push(`beat ${money(btcBeat, 0)} (${bLast >= btcBeat ? '+' : ''}${money(bLast - btcBeat, 0)})`);
+  if (eLast != null) hdr.push(`ETH ${money(eLast, 2)}`);
+  if (ethBeat != null && eLast != null) hdr.push(`beat ${money(ethBeat, 2)} (${eLast >= ethBeat ? '+' : ''}${money(eLast - ethBeat, 2)})`);
+  hdr.push(`n=${base.length}`);
+  ctx.fillStyle = '#8b93a7';
+  ctx.fillText(hdr.join('  ·  '), pad.l, 14);
+
+  function yBtc(price) { return pad.t + (1 - (price - bLo) / bRange) * plotH; }
+  function yEth(price) { return pad.t + (1 - (price - eLo) / eRange) * plotH; }
+
+  function paint(series, color, yFn, fill) {
+    if (series.length < 2) return;
+    if (fill) {
+      ctx.beginPath();
+      series.forEach((p, i) => {
+        const x = pad.l + (i / (series.length - 1)) * plotW;
+        const y = yFn(p.price);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(pad.l + plotW, pad.t + plotH);
+      ctx.lineTo(pad.l, pad.t + plotH);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    ctx.beginPath();
+    series.forEach((p, i) => {
+      const x = pad.l + (i / (series.length - 1)) * plotW;
+      const y = yFn(p.price);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.35;
+    ctx.stroke();
+    const last = series[series.length - 1];
+    const ly = yFn(last.price);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(pad.l + plotW, ly, 2.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(W - pad.r + 4, ly - 8, pad.r - 8, 16);
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'center';
+    ctx.font = '9px IBM Plex Mono';
+    ctx.fillText(money(last.price, last.price > 1000 ? 0 : 2), W - pad.r / 2 + 1, ly + 3);
+  }
+
+  paint(btcRaw, '#2e6cff', yBtc, 'rgba(46,108,255,0.07)');
+  paint(ethRaw, '#5aa7ff', yEth, 'rgba(90,167,255,0.05)');
+
+  function beatLine(price, yFn, color, label, series) {
+    if (price == null || !Number.isFinite(price)) return;
+    const y = yFn(price);
+    if (y < pad.t || y > pad.t + plotH) return;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.font = '10px IBM Plex Mono';
+    const last = series.slice(-1)[0];
+    const delta = last ? last.price - price : null;
+    const deltaTxt = delta == null ? '' : ` · ${delta >= 0 ? '+' : ''}${money(delta, Math.abs(delta) >= 10 ? 0 : 2)} (${((delta / price) * 100).toFixed(3)}%)`;
+    ctx.fillText(`${label} ${money(price, 2)}${deltaTxt}`, pad.l + 8, y - 5);
+  }
+  if (state.show.target) {
+    if (btcRaw.length) beatLine(btcBeat, yBtc, '#f0c14a', 'BTC to beat', btcRaw);
+    if (ethRaw.length) beatLine(ethBeat, yEth, '#e8a87c', 'ETH to beat', ethRaw);
+  }
+
+  if (state.hover?.canvas === 'chart' && base.length) {
+    const { x, y } = state.hover;
+    const idx = Math.max(0, Math.min(base.length - 1, Math.round(((x - pad.l) / plotW) * (base.length - 1))));
+    const cx = pad.l + (idx / Math.max(1, base.length - 1)) * plotW;
+    ctx.strokeStyle = '#2a2a32';
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, pad.t + plotH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.setLineDash([]);
+    const bi = Math.min(idx, Math.max(0, btcRaw.length - 1));
+    const ei = Math.min(idx, Math.max(0, ethRaw.length - 1));
+    const bt = btcRaw[bi], et = ethRaw[ei];
+    tip.style.display = 'block';
+    tip.style.left = Math.min(W - 220, Math.max(8, cx + 10)) + 'px';
+    tip.style.top = '12px';
+    const bDelta = bt && btcBeat != null ? bt.price - btcBeat : null;
+    const eDelta = et && ethBeat != null ? et.price - ethBeat : null;
+    tip.innerHTML = `${new Date(base[idx].t).toLocaleTimeString()}<br>` +
+      (bt ? `<span style="color:#2e6cff">BTC ${money(bt.price, 0)}${bDelta == null ? '' : ` · vs beat ${bDelta >= 0 ? '+' : ''}${money(bDelta, 0)}`}</span><br>` : '') +
+      (et ? `<span style="color:#5aa7ff">ETH ${money(et.price, 2)}${eDelta == null ? '' : ` · vs beat ${eDelta >= 0 ? '+' : ''}${money(eDelta, 2)}`}</span>` : '');
+  } else tip.style.display = 'none';
+}
+
+function drawShareChart() {
+  const canvas = $('share-chart');
+  const tip = $('share-tip');
+  const { ctx, W, H } = setupCanvas(canvas);
+  ctx.clearRect(0,0,W,H);
+  const up = state.shareHist.up, dn = state.shareHist.down;
+  const pad = { l: 40, r: 12, t: 14, b: 24 };
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+  if (up.length < 2 && dn.length < 2) {
+    ctx.fillStyle = '#555'; ctx.font = '12px Poppins'; ctx.fillText('Select a market window…', pad.l, H/2);
+    return;
+  }
+  const vals = [...up.map(x=>x.v), ...dn.map(x=>x.v)];
+  let hi = Math.max(...vals, 0.01), lo = Math.min(...vals, 0);
+  if (hi===lo){hi=Math.min(1,hi+0.05);lo=Math.max(0,lo-0.05)}
+  const range = hi - lo || 1;
+  ctx.strokeStyle = '#151518'; ctx.fillStyle = '#71717a'; ctx.font = '10px IBM Plex Mono'; ctx.textAlign = 'right';
+  for (let i=0;i<=4;i++) {
+    const y = pad.t + plotH*i/4;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillText((hi - range*i/4).toFixed(2), pad.l-6, y+3);
+  }
+  function series(arr, color) {
+    if (arr.length < 2) return;
+    ctx.beginPath();
+    arr.forEach((p,i) => {
+      const x = pad.l + i/(arr.length-1)*plotW;
+      const y = pad.t + (1-(p.v-lo)/range)*plotH;
+      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.stroke();
+  }
+  series(up, '#2e6cff'); series(dn, '#ff4d6a');
+  // target overlay on share chart (same units)
+  if (state.pred?.targetPrice?.predicted != null) {
+    const tp = state.pred.targetPrice.predicted;
+    const y = pad.t + (1 - (tp - lo)/range)*plotH;
+    if (y >= pad.t && y <= pad.t + plotH) {
+      ctx.setLineDash([4,3]); ctx.strokeStyle = '#f5d76e';
+      ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#f5d76e'; ctx.textAlign = 'left'; ctx.font = '10px IBM Plex Mono';
+      ctx.fillText('TARGET ' + fmt(tp,3), pad.l+4, y-4);
+    }
+  }
+  if (state.hover?.canvas === 'share' && up.length) {
+    const { x } = state.hover;
+    const idx = Math.max(0, Math.min(up.length-1, Math.round(((x-pad.l)/plotW)*(up.length-1))));
+    tip.style.display = 'block';
+    tip.style.left = Math.min(W-130, Math.max(8, x+8)) + 'px';
+    tip.style.top = '10px';
+    tip.innerHTML = `UP <b style="color:#2e6cff">${fmt(up[idx]?.v,3)}</b><br>DN <b style="color:#ff4d6a">${fmt(dn[Math.min(idx,dn.length-1)]?.v,3)}</b>`;
+  } else tip.style.display = 'none';
+}
+
+function drawSignalCanvas() {
+  const canvas = $('sig-canvas');
+  const { ctx, W, H } = setupCanvas(canvas);
+  ctx.clearRect(0,0,W,H);
+  const sig = state.pred?.signals?.[state.sigAsset];
+  const comps = sig?.components || [];
+  if (!comps.length) {
+    ctx.fillStyle = '#555'; ctx.font = '12px Poppins';
+    ctx.fillText('Waiting for live signal components…', 16, H/2);
+    return;
+  }
+  const cx = W * 0.36, cy = H/2, R = Math.min(H, W*0.5) * 0.38, n = comps.length;
+  ctx.strokeStyle = '#1c1c1f';
+  for (let ring=1; ring<=3; ring++) {
+    ctx.beginPath();
+    for (let i=0;i<=n;i++) {
+      const a = -Math.PI/2 + (i%n)/n*Math.PI*2;
+      const r = R*ring/3;
+      const x = cx+Math.cos(a)*r, y = cy+Math.sin(a)*r;
+      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+  for (let i=0;i<n;i++) {
+    const a = -Math.PI/2 + i/n*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*R, cy+Math.sin(a)*R); ctx.stroke();
+  }
+  ctx.beginPath();
+  comps.forEach((c,i) => {
+    const vote = Number(c.vote)||0;
+    const a = -Math.PI/2 + i/n*Math.PI*2;
+    const r = R * (0.35 + 0.65 * Math.abs(vote));
+    const x = cx+Math.cos(a)*r, y = cy+Math.sin(a)*r;
+    if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.closePath();
+  const bull = (sig.score||0) >= 0;
+  ctx.fillStyle = bull ? 'rgba(200,255,0,.15)' : 'rgba(255,59,74,.15)';
+  ctx.strokeStyle = bull ? '#2e6cff' : '#ff4d6a';
+  ctx.fill(); ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.font = '10px Poppins';
+  comps.forEach((c,i) => {
+    const a = -Math.PI/2 + i/n*Math.PI*2;
+    const vote = Number(c.vote)||0;
+    const r = R * (0.35 + 0.65 * Math.abs(vote));
+    const x = cx+Math.cos(a)*r, y = cy+Math.sin(a)*r;
+    const lx = cx+Math.cos(a)*(R+14), ly = cy+Math.sin(a)*(R+14);
+    ctx.fillStyle = vote>0 ? '#2e6cff' : vote<0 ? '#ff4d6a' : '#8b93a7';
+    ctx.beginPath(); ctx.arc(x,y, state.activeComp===c.id?5:3.2, 0, Math.PI*2); ctx.fill();
+    ctx.textAlign = Math.cos(a)>0.25?'left':Math.cos(a)<-0.25?'right':'center';
+    ctx.fillStyle = state.activeComp===c.id ? '#fff' : '#8b8b93';
+    ctx.fillText(c.label, lx, ly+3);
+  });
+  const sx = W * 0.66;
+  ctx.textAlign = 'left'; ctx.fillStyle = '#8b8b93'; ctx.font = '10px Poppins';
+  ctx.fillText((sig.asset||state.sigAsset) + ' · click a spoke', sx, 22);
+  ctx.font = '22px Poppins'; ctx.fontWeight = '800';
+  ctx.fillStyle = sig.direction==='up'?'#2e6cff':sig.direction==='down'?'#ff4d6a':'#f0c14a';
+  ctx.fillText((sig.direction||'—').toUpperCase(), sx, 52);
+  ctx.font = '11px IBM Plex Mono'; ctx.fillStyle = '#c4c4c8';
+  ctx.fillText(`conf ${fmt((sig.confidence||0)*100,0)}% · score ${fmt(sig.score,1)}`, sx, 74);
+  ctx.fillText(`TP ${fmt(sig.takeProfit?.price,3)}  SL ${fmt(sig.stopLoss?.price,3)}`, sx, 92);
+  canvas._hits = comps.map((c,i) => {
+    const a = -Math.PI/2 + i/n*Math.PI*2;
+    return { id:c.id, x:cx+Math.cos(a)*(R+6), y:cy+Math.sin(a)*(R+6), r:18, comp:c };
+  });
+}
+
+function renderCompList(sig) {
+  const comps = sig?.components || [];
+  $('comp-list').innerHTML = comps.map(c => {
+    const cls = c.vote>0?'up':c.vote<0?'dn':'warn';
+    const active = state.activeComp===c.id ? 'active' : '';
+    const val = c.id==='rsi'||c.id==='adx' ? fmt(c.value,1)
+      : c.id==='fund' ? fmt((c.value||0)*100,4)+'%'
+      : c.id==='mom' ? fmt(c.value,3)+'%'
+      : fmt(c.value,3);
+    return `<button type="button" class="comp ${active}" data-id="${c.id}"><div class="l">${c.label}</div><div class="v ${cls}">${val}</div><div class="mute" style="font-size:0.65rem">${c.vote>0?'BUY':c.vote<0?'SELL':'FLAT'}</div></button>`;
+  }).join('');
+  $('comp-list').querySelectorAll('.comp').forEach(el => {
+    el.onclick = () => {
+      state.activeComp = el.dataset.id;
+      const c = comps.find(x => x.id === state.activeComp);
+      $('comp-detail').textContent = c
+        ? `${c.label}: ${c.value} · votes ${c.vote>0?'buy':c.vote<0?'sell':'flat'} toward ${sig.direction} @ ${fmt((sig.confidence||0)*100,0)}% confidence`
+        : '';
+      renderCompList(sig); drawSignalCanvas();
+    };
+  });
+}
+
+function renderSignal(id, sig) {
+  const el = $(id);
+  if (!sig) {
+    el.innerHTML = `<div class="mute" style="font-size:0.7rem;letter-spacing:0.08em;text-transform:uppercase">${id.includes('btc')?'BTC':'ETH'}</div><div class="dir mute">WAITING</div><p class="mute" style="margin-top:0.5rem;font-size:0.8rem">Public feed warming up…</p>`;
+    return;
+  }
+  const cls = sig.direction==='up'?'up':sig.direction==='down'?'dn':'warn';
+  const age = sig.timestamp ? Math.max(0, Math.round((Date.now() - sig.timestamp) / 1000)) : null;
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase">
+      <span>${sig.asset||'—'}</span><span>${sig.action||'—'}</span>
+    </div>
+    <div class="dir ${cls}">${(sig.direction||'—').toUpperCase()}</div>
+    <div class="row2 mono">
+      <div>conf <strong>${fmt((sig.confidence||0)*100,0)}%</strong></div>
+      <div>score <strong>${fmt(sig.score,1)}</strong></div>
+      <div>TP <strong>${fmt(sig.takeProfit?.price,3)}</strong></div>
+      <div>SL <strong>${fmt(sig.stopLoss?.price,3)}</strong></div>
+    </div>
+    <div class="mute mono" style="margin-top:.45rem;font-size:.68rem">feed ${age == null ? '—' : age + 's ago'}${sig.skipTrade ? ' · skipTrade' : ''}</div>
+    <div class="tags">${(sig.tags||[]).slice(0,8).map(t=>`<span class="tag">${t}</span>`).join('')}</div>`;
+}
+
+function renderMarkets(markets) {
+  const list = markets || [];
+  $('mkt-count').textContent = String(list.length);
+  if (!state.slug && list.length) {
+    state.slug = (list.find(m => m.isCurrent) || list[0]).slug;
+    loadBook(state.slug);
+  }
+  $('markets').innerHTML = list.map(m => {
+    const active = m.slug === state.slug ? 'active' : '';
+    return `<button type="button" class="mkt ${active}" data-slug="${m.slug}">
+      <span class="name" title="${m.slug}">${m.slug}</span>
+      <span class="up">U ${fmt(m.prices?.up,3)}</span>
+      <span class="dn">D ${fmt(m.prices?.down,3)}</span>
+      <span class="win">${fmtWindow(m.remaining)}</span>
+    </button>`;
+  }).join('') || '<p class="mute">No live windows</p>';
+  $('markets').querySelectorAll('.mkt').forEach(el => {
+    el.onclick = () => {
+      state.slug = el.dataset.slug;
+      state.shareHist = { up: [], down: [] };
+      loadBook(state.slug);
+      renderMarkets(state.pred?.markets || []);
+      renderTickStrip();
+    };
+  });
+}
+
+function renderModels(ml) {
+  const health = ml?.health;
+  $('ml-health').textContent = health ? `${health.healthy||0}/${health.total||0} healthy` : '—';
+  const rows = [];
+  for (const asset of ['BTC','ETH']) {
+    for (const m of (ml?.models?.[asset]||[]).slice(0,4)) {
+      const dir = m.direction===1?'UP':m.direction===-1?'DOWN':'FLAT';
+      const cls = m.direction===1?'up':m.direction===-1?'dn':'warn';
+      rows.push(`<div class="model"><div class="l">${m.label||m.id}</div><div class="${cls}" style="font-weight:700">${dir} · ${fmt((m.confidence||0)*100,0)}%</div><div class="mute mono" style="font-size:0.68rem">E[r] ${fmt((m.expectedReturn||0)*100,2)}% · ${m.status}</div></div>`);
+    }
+  }
+  $('models').innerHTML = rows.join('') || '<div class="mute">No models yet</div>';
+}
+
+function renderTickStrip() {
+  const d = state.pred || {};
+  const spots = d.spot || {};
+  const markets = (d.markets || []).filter(m => m.isCurrent && m.prices);
+  const win = d.window || d.currentMarket;
+  const btc = spots.btc?.price, eth = spots.eth?.price;
+
+  const cell = (label, price, digits, key) => {
+    const prevKey = key;
+    let flash = '';
+    if (price != null && state.lastPx[prevKey] != null && price !== state.lastPx[prevKey]) {
+      flash = price > state.lastPx[prevKey] ? 'flash-up' : 'flash-down';
+    }
+    if (price != null) state.lastPx[prevKey] = price;
+    const chg = null;
+    return `<div class="live-tick"><div class="sym">${label}</div><div class="px ${flash}">${price==null?'—':(digits===3||digits===0? (digits===3?fmt(price,3):money(price,0)) : money(price,digits))}</div>${chg||''}</div>`;
+  };
+
+  // build manually for spot with money formatting
+  const spotCell = (label, price, digits, key) => {
+    let flash = '';
+    if (price != null && state.lastPx[key] != null && price !== state.lastPx[key]) {
+      flash = price > state.lastPx[key] ? 'flash-up' : 'flash-down';
+    }
+    if (price != null) state.lastPx[key] = price;
+    return `<div class="live-tick"><div class="sym">${label}</div><div class="px ${flash}">${money(price, digits)}</div></div>`;
+  };
+  const midCell = (label, price, key) => {
+    let flash = '';
+    const map = key.startsWith('u') ? state.lastPx.up : state.lastPx.down;
+    const k = label;
+    if (price != null && map[k] != null && price !== map[k]) flash = price > map[k] ? 'flash-up' : 'flash-down';
+    if (price != null) map[k] = price;
+    return `<div class="live-tick"><div class="sym">${label}</div><div class="px ${flash}">${fmt(price,3)}</div></div>`;
+  };
+
+  let html = '';
+  html += spotCell('BTC', btc, 0, 'btc');
+  html += spotCell('ETH', eth, 2, 'eth');
+  html += `<div class="live-tick cycle"><div class="sym">Window left</div><div class="px">${win ? fmtWindow(win.remaining) : '—'}</div><div class="chg up">${win?.symbol || 'OPEN'}</div></div>`;
+  {
+    const b = d.signals?.btc, e = d.signals?.eth;
+    const ageMs = d.feed?.ageMs;
+    const age = ageMs == null ? '—' : `${Math.round(ageMs / 1000)}s`;
+    const label = [b, e].filter(Boolean).map(s => `${s.asset} ${(s.direction || '—').toUpperCase()}`).join(' · ') || 'WARMING';
+    html += `<div class="live-tick"><div class="sym">Signal feed</div><div class="px">${label}</div><div class="chg up">${age}</div></div>`;
+  }
+  const ptb = d.priceToBeat || {};
+  for (const asset of ['btc', 'eth']) {
+    const beat = ptb[asset];
+    if (!beat?.openPrice) continue;
+    const spotPx = spots[asset]?.price;
+    const delta = spotPx != null ? spotPx - beat.openPrice : null;
+    const side = delta == null ? '' : delta >= 0 ? 'up' : 'down';
+    html += `<div class="live-tick"><div class="sym">${beat.symbol} to beat</div><div class="px">${money(beat.openPrice, beat.symbol === 'BTC' ? 0 : 2)}</div><div class="chg ${side}">${delta == null ? '—' : `${delta >= 0 ? '+' : ''}${money(delta, beat.symbol === 'BTC' ? 0 : 2)}`}</div></div>`;
+  }
+  markets.slice(0,3).forEach(m => {
+    html += midCell(`${m.symbol} UP`, m.prices?.up, 'u'+m.slug);
+    html += midCell(`${m.symbol} DN`, m.prices?.down, 'd'+m.slug);
+  });
+  html += `<div class="live-tick-live"><span class="dot" aria-hidden="true"></span>LIVE <span id="live-clock"></span></div>`;
+  $('tick-strip').innerHTML = html;
+  updateClock();
+}
+
+function updateClock() {
+  const el = $('live-clock');
+  if (el) el.textContent = new Date().toLocaleTimeString();
+}
+
+function renderSigJson() {
+  const payload = {
+    timestamp: state.pred?.timestamp,
+    window: state.pred?.window,
+    targetPrice: state.pred?.targetPrice,
+    priceToBeat: state.pred?.priceToBeat,
+    signals: state.pred?.signals,
+    botPaper: state.pred?.botPaper,
+    publishedPaper: state.pred?.publishedPaper || state.pred?.botPaper,
+  };
+  $('sig-json').textContent = JSON.stringify(payload, null, 2);
+}
+
+function renderPaper(paper) {
+  if (!paper) return;
+  const status = paper.status || (paper.running ? 'running' : 'stopped');
+  $('paper-status').textContent = paper.published
+    ? `${status} · published bot`
+    : status;
+  $('paper-status').className = status === 'running' ? 'up' : 'warn';
+  $('paper-equity').textContent = money(paper.equity, 2);
+  $('paper-cash').textContent = money(paper.cash, 2);
+  $('paper-realized').textContent = `${Number(paper.realizedPnl || 0) >= 0 ? '+' : ''}${money(paper.realizedPnl, 2)}`;
+  $('paper-realized').className = Number(paper.realizedPnl || 0) >= 0 ? 'mono up' : 'mono dn';
+  const wrEl = $('paper-wr');
+  if (wrEl) {
+    wrEl.textContent = paper.winRate == null
+      ? '—'
+      : `${paper.winRate}% · ${paper.wins || 0}W/${paper.losses || 0}L`;
+  }
+  $('paper-open').textContent = String(paper.openCount ?? (paper.open || []).length);
+  $('paper-positions').innerHTML = (paper.open || []).map(position => {
+    const asset = position.asset || position.symbol || '?';
+    const outcome = String(position.outcome || '').toUpperCase();
+    const cost = position.cost ?? position.size;
+    const unreal = position.unrealizedPnl ?? position.pnl ?? 0;
+    return `
+    <div class="model">
+      <div class="l">${asset} · ${outcome}</div>
+      <div class="mono">${money(cost)} @ ${fmt(position.entry,3)} → ${fmt(position.mark,3)}</div>
+      <div class="${Number(unreal) >= 0 ? 'up' : 'dn'} mono">
+        ${Number(unreal) >= 0 ? '+' : ''}${money(unreal,2)}
+      </div>
+      <div class="mute mono" style="font-size:.65rem">${position.takeProfit ? `TP ${fmt(position.takeProfit,3)} · ` : ''}${position.stopLoss ? `SL ${fmt(position.stopLoss,3)}` : ''}${position.feesPaid != null ? ` · fees $${Number(position.feesPaid).toFixed(4)}` : ''}</div>
+    </div>`;
+  }).join('') || '<p class="mute">No open bot positions.</p>';
+  $('paper-events').innerHTML = (paper.events || []).slice(0, 12).map(event => `
+    <div class="model"><span class="${event.type === 'open' || event.type === 'buy' || event.type === 'deploy' ? 'up' : Number(event.pnl || 0) >= 0 ? 'up' : 'dn'}">${event.message}</span><br><span class="mute">${event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : ''}</span></div>
+  `).join('') || '<p class="mute">Waiting for bot tape…</p>';
+  const tradesEl = $('paper-trades');
+  if (tradesEl) {
+    const trades = paper.trades || paper.recentTrades || [];
+    tradesEl.innerHTML = trades.slice(0, 16).map((t) => `
+      <div class="model">
+        <span>${t.asset || t.symbol || '?'} ${String(t.outcome || '').toUpperCase()} · ${t.reason || 'close'} · ${fmt(t.entry,3)} → ${fmt(t.exit,3)}</span>
+        <span class="mono ${Number(t.pnl || 0) >= 0 ? 'up' : 'dn'}">${Number(t.pnl || 0) >= 0 ? '+' : ''}${money(t.pnl, 2)}</span>
+        <span class="mute">${t.feesPaid != null ? 'fees $' + Number(t.feesPaid).toFixed(4) : ''}</span>
+      </div>
+    `).join('') || '<p class="mute">No closed trades yet.</p>';
+  }
+}
+
+function renderPred(d) {
+  state.pred = d;
+  renderTickStrip();
+  renderSignal('sig-btc', d.signals?.btc);
+  renderSignal('sig-eth', d.signals?.eth);
+  renderCompList(d.signals?.[state.sigAsset]);
+  drawSignalCanvas();
+  renderMarkets(d.markets);
+  renderModels(d.ml);
+  renderPaper(d.botPaper || d.publishedPaper || d.paper);
+  if (state.tab === 'signals') renderSigJson();
+
+  const m = (d.markets||[]).find(x => x.slug === state.slug) || d.currentMarket;
+  if (m?.prices) {
+    const ts = Date.now();
+    if (m.prices.up != null) { state.shareHist.up.push({t:ts,v:m.prices.up}); if (state.shareHist.up.length>120) state.shareHist.up.shift(); }
+    if (m.prices.down != null) { state.shareHist.down.push({t:ts,v:m.prices.down}); if (state.shareHist.down.length>120) state.shareHist.down.shift(); }
+    drawShareChart();
+  }
+  drawSpotChart();
+  $('book-slug').textContent = state.slug || '—';
+}
+
+async function loadBook(slug) {
+  if (!slug) return;
+  try {
+    const d = await fetch(API + '/market/' + encodeURIComponent(slug)).then(r => r.json());
+    $('up-mid').textContent = fmt(d.prices?.up, 3);
+    $('dn-mid').textContent = fmt(d.prices?.down, 3);
+    const ub = d.depth?.up || {}, db = d.depth?.down || {};
+    $('up-ba').textContent = `${fmt(ub.bestBid,3)} / ${fmt(ub.bestAsk,3)}`;
+    $('dn-ba').textContent = `${fmt(db.bestBid,3)} / ${fmt(db.bestAsk,3)}`;
+  } catch {}
+}
+
+function bindChart(canvasId, tipKey) {
+  const canvas = $(canvasId);
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    if (state.drag && tipKey === 'chart') {
+      const dx = (x - state.drag.x) / rect.width;
+      const span = state.zoom.end - state.zoom.start;
+      let start = state.drag.start - dx;
+      start = Math.max(0, Math.min(1 - span, start));
+      state.zoom.start = start;
+      state.zoom.end = start + span;
+      state.drag.x = x;
+    }
+    state.hover = { canvas: tipKey, x, y };
+    if (tipKey === 'chart') drawSpotChart(); else drawShareChart();
+  });
+  canvas.addEventListener('mouseleave', () => { state.hover = null; state.drag = null; if (tipKey==='chart') drawSpotChart(); else drawShareChart(); });
+  canvas.addEventListener('mousedown', (e) => {
+    if (tipKey !== 'chart') return;
+    const rect = canvas.getBoundingClientRect();
+    state.drag = { x: e.clientX - rect.left, start: state.zoom.start };
+  });
+  window.addEventListener('mouseup', () => { state.drag = null; });
+  canvas.addEventListener('wheel', (e) => {
+    if (tipKey !== 'chart') return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const span = state.zoom.end - state.zoom.start;
+    const next = e.deltaY > 0 ? Math.min(1, span * 1.15) : Math.max(0.08, span * 0.85);
+    const center = state.zoom.start + span * x;
+    state.zoom.start = Math.max(0, Math.min(1 - next, center - next * x));
+    state.zoom.end = state.zoom.start + next;
+    drawSpotChart();
+  }, { passive: false });
+}
+
+function connectPred() {
+  if (state.esPred) state.esPred.close();
+  const es = new EventSource(API + '/predictions/stream');
+  state.esPred = es;
+  $('st-stream').textContent = 'stream …';
+  $('st-stream').className = 'warn';
+  es.onmessage = (ev) => {
+    try {
+      renderPred(JSON.parse(ev.data));
+      $('st-stream').textContent = 'stream live';
+      $('st-stream').className = 'ok';
+      const feed = state.pred?.feed;
+      const ageMs = feed?.ageMs;
+      const live = feed?.status === 'live' || !!(state.pred?.signals?.btc || state.pred?.signals?.eth);
+      if (live) {
+        const age = ageMs == null ? '' : ` · ${Math.round(ageMs / 1000)}s`;
+        $('st-feed').textContent = `signals live${age}`;
+        $('st-feed').className = (ageMs != null && ageMs > 12000) ? 'warn' : 'ok';
+      } else {
+        $('st-feed').textContent = 'signals warming';
+        $('st-feed').className = 'warn';
+      }
+    } catch {}
+  };
+  es.onerror = () => {
+    $('st-stream').textContent = 'stream retry';
+    $('st-stream').className = 'warn';
+    $('st-feed').textContent = 'signals reconnect';
+    $('st-feed').className = 'warn';
+  };
+}
+
+function connectSpot(asset) {
+  const key = asset === 'btc' ? 'esSpotBtc' : 'esSpotEth';
+  if (state[key]) state[key].close();
+  const es = new EventSource(API + `/charts/spot/stream?asset=${asset}&limit=1600`);
+  state[key] = es;
+  es.onmessage = (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.ticks && Array.isArray(d.ticks)) {
+        state.ticks[d.asset || asset] = d.ticks.slice(-1600);
+        scheduleSpotDraw();
+        renderTickStrip();
+      } else if (d.tick) {
+        const a = d.asset || asset;
+        if (!state.ticks[a]) state.ticks[a] = [];
+        state.ticks[a].push(d.tick);
+        if (state.ticks[a].length > 1800) state.ticks[a].shift();
+        scheduleSpotDraw();
+        renderTickStrip();
+      }
+    } catch {}
+  };
+}
+
+function buildDocs() {
+  $('docs-body').innerHTML = `
+    <h2 id="d-overview">1 · Overview</h2>
+    <p>Zinger is a signal protocol for <strong>5-minute crypto up/down prediction markets</strong> (BTC and ETH). A private pipeline watches live spot data, computes a multi-indicator technical signal plus ML model forecasts, and publishes everything on public, keyless, read-only endpoints under <code>/api/v1</code>.</p>
+    <p>The protocol is deliberately split in two halves:</p>
+    <ul>
+      <li><strong>Signal side (this API):</strong> tells you <em>what</em> the pipeline believes — direction, confidence, suggested take-profit / stop-loss share prices, model forecasts, live books.</li>
+      <li><strong>Execution side (yours):</strong> your own client decides <em>whether and how</em> to act — sizing, order placement, position management on Polymarket, Kalshi, or paper. This API never places orders and never accepts keys.</li>
+    </ul>
+    <p>Base URL: <code>https://zinger.kierkegaard.space/api/v1</code>. No authentication, CORS open (<code>Access-Control-Allow-Origin: *</code>), all routes are <code>GET</code>.</p>
+
+    <h2 id="d-architecture">2 · Architecture &amp; data flow</h2>
+    <div class="flow">Binance spot WS (BTC/ETH trades)  ─┐
+Binance 1m candles + funding      ─┤            ┌─&gt; GET /predictions (+/stream)
+Polymarket CLOB books (UP/DOWN)   ─┼─&gt; pipeline ┼─&gt; GET /markets · /market/:slug
+ML model registry (12 models)     ─┤   (private)├─&gt; GET /charts/spot (+/stream)
+                                   │            ├─&gt; GET /paper (+/stream)
+TA signal engine (every ~4s)      ─┘            └─&gt; GET /health · /target-price</div>
+    <p>The signal engine runs continuously — <strong>even when the private trading bot is stopped</strong> — so streams always carry fresh signals. Spot ticks come from a Binance trade websocket; Polymarket books are polled per window; ML models run on their own schedules and report through the registry.</p>
+
+    <h2 id="d-windows">3 · Window lifecycle</h2>
+    <p>Everything is anchored to <strong>wall-clock-aligned 5-minute windows</strong>. Each window is one binary market per asset: will price settle UP or DOWN vs the window open?</p>
+    <table>
+      <tr><th>Phase</th><th>When</th><th>What it means for a client</th></tr>
+      <tr><td><code>OPEN</code></td><td>&gt; 60s remaining</td><td>Normal trading; signals are actionable.</td></tr>
+      <tr><td><code>LATE</code></td><td>≤ 60s remaining</td><td>Books thin out and mids swing; widen your filters.</td></tr>
+      <tr><td><code>ENDING</code></td><td>≤ 8s remaining</td><td>Do not enter; manage exits only.</td></tr>
+      <tr><td><code>SETTLED</code></td><td>0s</td><td>Market resolves; the next window's slug appears in <code>/markets</code>.</td></tr>
+    </table>
+    <p>Slugs encode the window start as a unix timestamp: <code>btc-updown-5m-1785074700</code>. The envelope's <code>window.remaining</code> is seconds left; the UI renders it as <code>m:ss</code>.</p>
+
+    <h2 id="d-pipeline">4 · Signal pipeline</h2>
+    <p>Every ~4 seconds the engine pulls 1-minute candles and funding for each asset and computes eight components. Each component casts a vote: <strong>+1</strong> (up), <strong>−1</strong> (down), or <strong>0</strong> (flat).</p>
+    <table>
+      <tr><th>Component</th><th>Field</th><th>Votes up when</th><th>Votes down when</th></tr>
+      <tr><td>RSI (14)</td><td><code>rsi</code></td><td>&lt; 40 (oversold)</td><td>&gt; 60 (overbought)</td></tr>
+      <tr><td>MACD histogram</td><td><code>macdHist</code></td><td>&gt; 0</td><td>&lt; 0</td></tr>
+      <tr><td>ADX trend</td><td><code>adx</code></td><td>trend = up</td><td>trend = down</td></tr>
+      <tr><td>1m momentum</td><td><code>momentum.m1</code></td><td>&gt; +0.05%</td><td>&lt; −0.05%</td></tr>
+      <tr><td>Volume surge</td><td><code>volume.ratio</code></td><td>&gt; 1.3× with positive momentum</td><td>&gt; 1.3× with negative momentum</td></tr>
+      <tr><td>Taker buy ratio</td><td><code>volume.takerBuyRatio</code></td><td>≥ 0.58</td><td>≤ 0.42</td></tr>
+      <tr><td>Funding rate</td><td><code>funding.rate</code></td><td>&lt; −0.015% (shorts pay)</td><td>&gt; +0.015% (longs pay)</td></tr>
+      <tr><td>Aggregate score</td><td><code>score</code></td><td>&gt; +2.5</td><td>&lt; −2.5</td></tr>
+    </table>
+    <p>The weighted sum of votes forms the <code>score</code>; its sign sets <code>direction</code> (<code>up</code> / <code>down</code> / <code>neutral</code>) and its magnitude maps to <code>confidence</code>, capped at <strong>0.65</strong> — the protocol never claims near-certainty on a 5-minute horizon. <code>skipTrade</code> is set when quality gates fail (conflicting components, dead volume, extreme funding), meaning: informational only, do not execute.</p>
+    <h3>Suggested levels (TP / SL / partial)</h3>
+    <p>Levels are <em>share-price</em> levels for the binary outcome token, derived from confidence:</p>
+    <pre>tpPct      = 8% + confidence × 8%      // 8%…13.2% above entry
+slPct      = 12%                        // fixed below entry
+partial    = entry × (1 + tpPct / 2)    // take half at half the TP move
+takeProfit = entry × (1 + tpPct)
+stopLoss   = entry × (1 − slPct)</pre>
+    <p>They are suggestions calibrated to the pipeline's own paper history — your client may use tighter or looser exits.</p>
+
+    <h2 id="d-signal-schema">5 · Signal schema</h2>
+    <p>Found at <code>signals.btc</code> and <code>signals.eth</code> in the envelope. Either can be <code>null</code> while warming up.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
+      <tr><td><code>asset</code></td><td>string</td><td><code>BTC</code> or <code>ETH</code></td></tr>
+      <tr><td><code>action</code></td><td>enum</td><td><code>buy_up</code> · <code>buy_down</code> · <code>hold</code></td></tr>
+      <tr><td><code>direction</code></td><td>enum</td><td><code>up</code> · <code>down</code> · <code>neutral</code></td></tr>
+      <tr><td><code>confidence</code></td><td>number</td><td>0…0.65 — conviction in the direction</td></tr>
+      <tr><td><code>score</code></td><td>number</td><td>Raw weighted component sum (sign = direction)</td></tr>
+      <tr><td><code>price</code></td><td>number</td><td>Spot price when the signal was computed</td></tr>
+      <tr><td><code>entry</code></td><td>number</td><td>Reference share price the levels are built from</td></tr>
+      <tr><td><code>takeProfit</code></td><td>object</td><td><code>{ pct, price }</code> suggested TP share price</td></tr>
+      <tr><td><code>stopLoss</code></td><td>object</td><td><code>{ pct, price }</code> suggested SL share price</td></tr>
+      <tr><td><code>partial</code></td><td>object</td><td><code>{ pct, price }</code> suggested partial-exit level</td></tr>
+      <tr><td><code>components</code></td><td>array</td><td>8 items: <code>{ id, label, value, vote }</code> (vote ∈ −1/0/+1)</td></tr>
+      <tr><td><code>rsi · adx · macdHist</code></td><td>number</td><td>Raw indicator values</td></tr>
+      <tr><td><code>momentum · volume · funding</code></td><td>object</td><td>Raw indicator detail objects</td></tr>
+      <tr><td><code>tags</code></td><td>string[]</td><td>Human-readable pattern notes (e.g. <code>RSI_OVERSOLD</code>)</td></tr>
+      <tr><td><code>skipTrade</code></td><td>boolean</td><td><strong>true = do not execute</strong>, quality gates failed</td></tr>
+      <tr><td><code>timestamp</code></td><td>ms epoch</td><td>When computed — treat &gt;10s old as stale</td></tr>
+    </table>
+
+    <h2 id="d-envelope">6 · Prediction envelope</h2>
+    <p><code>GET /predictions</code> and each SSE message on <code>/predictions/stream</code> carry the same envelope:</p>
+    <pre>{
+  "timestamp": 1785074400010,
+  "spot":      { "btc": { "price", "ts", "ticks" }, "eth": { … } },
+  "signals":   { "btc": &lt;signal|null&gt;, "eth": &lt;signal|null&gt; },
+  "ml":        { "models": { "BTC": [...], "ETH": [...] }, "health": { … } },
+  "consensus": { "btc": { … }, "eth": { … } },      // cross-model agreement
+  "traces":    { "btc": [...], "eth": [...] },      // recent price traces
+  "markets":   [ &lt;current windows with prices+depth+priceToBeat&gt; ],
+  "currentMarket": &lt;first current window|null&gt;,
+  "priceToBeat":  { "btc": { "openPrice", "vsBeat", "slug", … }, "eth": { … } },
+  "targetPrice":  { "current", "predicted", "direction",
+                    "confidence", "expectedReturn", "modelId" } | null,
+  "window":    { "slug", "symbol", "closesAt", "remaining", "prices" } | null,
+  "paper":     &lt;paper simulation snapshot — section 9&gt;
+}</pre>
+    <p><code>priceToBeat</code> is the live Polymarket Chainlink <em>window open</em> for the current 5m up/down market — the USD level spot must finish at or above for UP to win. The spot chart draws this as the dashed “to beat” line. <code>targetPrice</code> is a separate ML/signal share-price forecast (0–1) used on the UP/DOWN share chart; it can be <code>null</code> between windows.</p>
+
+    <h2 id="d-ml">7 · ML models &amp; target price</h2>
+    <p>Twelve models run in a registry — six per asset across timeframes/horizons (5m…1h). Each entry reports:</p>
+    <table>
+      <tr><th>Field</th><th>Meaning</th></tr>
+      <tr><td><code>id · label · timeframe · horizon · minutes</code></td><td>Identity and forecast horizon</td></tr>
+      <tr><td><code>status</code></td><td><code>healthy</code> · <code>idle</code> · <code>running</code> · <code>error</code></td></tr>
+      <tr><td><code>direction</code></td><td><code>1</code> up · <code>−1</code> down · <code>0</code> flat</td></tr>
+      <tr><td><code>confidence</code></td><td>0…1 model self-confidence</td></tr>
+      <tr><td><code>expectedReturn</code></td><td>Expected move over the horizon (fraction)</td></tr>
+      <tr><td><code>probUp / probDown / probNeutral</code></td><td>Class probabilities</td></tr>
+      <tr><td><code>lastRun · lastDuration</code></td><td>Inference freshness</td></tr>
+    </table>
+    <p>The <strong>ML share target</strong> on the UP/DOWN chart is <code>current × (1 + direction × expectedReturn × confidence)</code>, clamped to (0.001, 0.999). Spot USD “to beat” lines come from Polymarket’s crypto-price open, not from this formula. Model methodology is in <code>docs/ML.md</code>.</p>
+
+    <h2 id="d-markets">8 · Markets &amp; order books</h2>
+    <p><code>GET /markets</code> lists windows; <code>GET /market/:slug</code> returns one with depth. UP and DOWN are separate outcome tokens whose prices sum ≈ 1.</p>
+    <table>
+      <tr><th>Field</th><th>Meaning</th></tr>
+      <tr><td><code>slug · symbol · title</code></td><td>Identity; symbol is <code>BTC</code>/<code>ETH</code></td></tr>
+      <tr><td><code>isCurrent</code></td><td>true for the active (tradable) window</td></tr>
+      <tr><td><code>closesAt · remaining</code></td><td>Settlement time and seconds left</td></tr>
+      <tr><td><code>prices.up / prices.down</code></td><td>Mid share prices (≈ implied probability)</td></tr>
+      <tr><td><code>depth.up / depth.down</code></td><td><code>{ bestBid, bestAsk, mid, spreadPct }</code> per outcome</td></tr>
+    </table>
+    <p>Treat <code>spreadPct</code> and depth as your execution-quality gate: a strong signal into a 10%-wide book is usually not worth taking.</p>
+
+    <h2 id="d-sizing">9 · Sizing bounds (replicate ours)</h2>
+    <p>These are the <strong>production paper defaults</strong> the private bot uses to turn a signal into a dollar size. Copy them into your client so your execution engine matches our risk envelope. Live defaults are tighter (listed at the bottom).</p>
+
+    <h3>Hard bounds (paper)</h3>
+    <table>
+      <tr><th>Bound</th><th>Value</th><th>Meaning</th></tr>
+      <tr><td><code>minPositionSize</code></td><td><strong>$0.50</strong></td><td>Floor per order (venue min is $0.40)</td></tr>
+      <tr><td><code>maxPositionSize</code> / <code>maxPositionCap</code></td><td><strong>$14</strong></td><td>Hard USD ceiling per position</td></tr>
+      <tr><td><code>maxPositionPct</code></td><td><strong>15%</strong> of bankroll</td><td>Soft ceiling vs cash</td></tr>
+      <tr><td>Paper hard cap</td><td><strong>min(maxUsd, cash × 0.95)</strong></td><td>Never spend the last 5%</td></tr>
+      <tr><td><code>bankrollReservePct</code></td><td><strong>8%</strong></td><td>Keep cash buffer uncommitted</td></tr>
+      <tr><td><code>maxOpenPositions</code></td><td><strong>3</strong></td><td>Global open-position limit</td></tr>
+      <tr><td><code>maxConcurrentPerSlug</code></td><td><strong>1</strong></td><td>One position per market window</td></tr>
+      <tr><td><code>allowScaleIn</code></td><td><strong>false</strong></td><td>No averaging into a loser</td></tr>
+      <tr><td>Entry price band</td><td><strong>0.38 – 0.88</strong></td><td>Reject extreme favorites / junk underdogs</td></tr>
+      <tr><td>Window gate</td><td><strong>30s – 270s</strong> remaining</td><td>No entries in the last 30s or first ~30s</td></tr>
+      <tr><td><code>minConfidence</code></td><td><strong>0.30</strong></td><td>Ignore weaker signals</td></tr>
+    </table>
+
+    <h3>How size is computed</h3>
+    <ol>
+      <li><code>maxUsd = min(bankroll × maxPositionPct, maxPositionCap, maxPositionSize)</code></li>
+      <li><code>hardCap = min(maxUsd, bankroll × 0.95)</code> (paper)</li>
+      <li>If trade history &lt; 10 closes → <strong>confidence scaling</strong>:<br>
+        <code>size = minUsd + (hardCap − minUsd) × (0.15 + conf × 0.25)</code><br>
+        with <code>conf = min(confidence, 0.65)</code></li>
+      <li>If history ≥ 10 and Kelly edge ≤ 0 → size <strong>$0</strong> (live). Paper may still take a tiny probe: <code>1.2 + conf × 2.5</code>, clamped to <code>[minUsd, hardCap]</code>.</li>
+      <li>If Kelly edge &gt; 0 → fractional Kelly:<br>
+        <code>betPct = clamp(kellyRaw × kellyFraction, 1%, 50%)</code><br>
+        <code>size = bankroll × betPct × (0.35 + conf × 0.5)</code><br>
+        then clamp to <code>[minUsd, hardCap, bankroll × maxPositionPct]</code>. Paper uses <code>kellyFraction = 0.10</code> (10% of raw Kelly).</li>
+      <li><strong>Certainty upsizing</strong> (favorites only, ask &gt; 0.5, time left &gt; 0): estimate settlement win-prob <code>q</code>, full Kelly <code>f* = (q − price) / (1 − price)</code>, then size up to <code>min(bankroll × certaintyMaxPct, certaintyMaxUsd)</code>. Paper: <strong>12% / $14</strong>.</li>
+    </ol>
+    <pre>// Minimal replica (paper defaults)
+function sizeUsd({ bankroll, confidence, kellyRaw = null, tradeCount = 0 }) {
+  const minUsd = 0.5;
+  const maxUsd = Math.min(bankroll * 0.15, 14);
+  const hardCap = Math.min(maxUsd, bankroll * 0.95);
+  const conf = Math.min(0.65, Number(confidence) || 0);
+
+  if (tradeCount &lt; 10 || !(kellyRaw &gt; 0)) {
+    // confidence_scaling (or paper_probe when Kelly is negative)
+    return Math.round(Math.max(minUsd, Math.min(
+      hardCap,
+      minUsd + (hardCap - minUsd) * (0.15 + conf * 0.25)
+    )) * 100) / 100;
+  }
+
+  const kellyFraction = 0.10; // paper; use 0.08 live
+  const betPct = Math.max(0.01, Math.min(kellyRaw * kellyFraction, 0.50));
+  const sized = bankroll * betPct * (0.35 + conf * 0.5);
+  return Math.round(Math.max(minUsd, Math.min(sized, hardCap)) * 100) / 100;
+}</pre>
+
+    <h3>Exit bounds (paired with size)</h3>
+    <table>
+      <tr><th>Param</th><th>Paper default</th><th>Notes</th></tr>
+      <tr><td>TP range</td><td><strong>18% – 42%</strong> of entry</td><td>Scales with confidence inside the band</td></tr>
+      <tr><td>SL</td><td><strong>12%</strong></td><td>Adaptive SL off by default</td></tr>
+      <tr><td>Partial TP</td><td>at <strong>72%</strong> of TP path, sell <strong>35%</strong></td><td><code>partialTpFrac</code> / <code>partialSellPct</code></td></tr>
+      <tr><td>Public API suggested levels</td><td>TP 8–13.2%, SL 12%</td><td>Simplified envelope for clients — override with the table above to match the bot</td></tr>
+    </table>
+
+    <h3>Live (stricter) defaults</h3>
+    <p>When you graduate from paper: <code>maxPositionSize/Cap = $2</code>, <code>maxPositionPct = 6%</code>, <code>maxOpenPositions = 2</code>, <code>minConfidence = 0.35</code>, <code>kellyFraction = 0.08</code>, <code>certaintyMaxPct = 10%</code>, <code>certaintyMaxUsd = $2</code>. Live also requires the edge gate (≥ 40 paper closes, expectancy &gt; 0, Kelly &gt; 0).</p>
+    <p class="mute">Reference implementation: <code>src/polymarket/kelly.js</code> + <code>resolveOrderSize</code> in <code>src/polymarket/bot.js</code>; defaults in <code>defaultPaperStrategy()</code> / <code>defaultLiveStrategy()</code>.</p>
+
+    <h2 id="d-paper">10 · Paper simulation protocol</h2>
+    <p>The API streams a transparent <strong>$100 virtual portfolio</strong> that executes the public signals mechanically, so you can watch how the raw signal stream performs before writing a client. Rules:</p>
+    <ol>
+      <li>Enter when a signal has direction <code>up</code>/<code>down</code>, <code>confidence ≥ 0.35</code>, <code>skipTrade = false</code>, and &gt; 20s remain in the window.</li>
+      <li>One position per asset per window; cost = min($5, max($1, 5% of cash)).</li>
+      <li>Fill at the observed public mid for the chosen outcome — no fees, no slippage.</li>
+      <li>Exit on take-profit, stop-loss, or window close, whichever comes first.</li>
+    </ol>
+    <p>Snapshot fields: <code>cash</code>, <code>equity</code>, <code>realizedPnl</code>, <code>unrealizedPnl</code>, <code>open[]</code> (positions with entry/mark/TP/SL), <code>trades[]</code> (last 30 closes with exit reason), <code>events[]</code> (open/close messages). Available at <code>GET /paper</code>, streamed on <code>GET /paper/stream</code>, and embedded in the envelope as <code>paper</code>. <strong>Educational only</strong> — real books have fees, slippage, and partial fills.</p>
+
+    <h2 id="d-streaming">11 · Streaming (SSE)</h2>
+    <p>All streams are standard Server-Sent Events: <code>Content-Type: text/event-stream</code>, one JSON document per <code>data:</code> line.</p>
+    <table>
+      <tr><th>Stream</th><th>Cadence</th><th>Payload</th></tr>
+      <tr><td><code>/predictions/stream</code></td><td>~1s</td><td>Full envelope (section 6)</td></tr>
+      <tr><td><code>/charts/spot/stream?asset=btc|eth</code></td><td>per trade tick</td><td>First message: <code>{ ticks: [...] }</code> history · then <code>{ asset, tick: { t, price } }</code></td></tr>
+      <tr><td><code>/paper/stream</code></td><td>~1s</td><td>Paper snapshot (section 9)</td></tr>
+    </table>
+    <p>Client guidance: reconnect with exponential backoff (browsers' <code>EventSource</code> does this automatically), treat every message as a full state replacement (no diffing needed), and drop messages older than your staleness threshold instead of queueing them.</p>
+
+    <h2 id="d-rest">12 · REST reference</h2>
+    <table>
+      <tr><th>Route</th><th>Returns</th></tr>
+      <tr><td><code>GET /predictions</code></td><td>Envelope snapshot (section 6)</td></tr>
+      <tr><td><code>GET /predictions/stream</code></td><td>SSE envelope ~1s</td></tr>
+      <tr><td><code>GET /markets</code></td><td>All windows + mids + depth</td></tr>
+      <tr><td><code>GET /market/:slug</code></td><td>One window + full book detail (404 if unknown)</td></tr>
+      <tr><td><code>GET /charts/spot?asset=btc&amp;limit=500</code></td><td>Tick history <code>{ asset, ticks, current, count }</code></td></tr>
+      <tr><td><code>GET /charts/spot/stream?asset=btc</code></td><td>SSE tick-by-tick</td></tr>
+      <tr><td><code>GET /target-price?slug=…</code></td><td>Target share price for a window</td></tr>
+      <tr><td><code>GET /paper</code></td><td>Paper portfolio snapshot</td></tr>
+      <tr><td><code>GET /paper/stream</code></td><td>SSE paper portfolio</td></tr>
+      <tr><td><code>GET /health</code></td><td><code>{ ok, uptime, bot: { running, mode }, models: { total, healthy, … } }</code></td></tr>
+    </table>
+    <pre># quick probes
+curl -s https://zinger.kierkegaard.space/api/v1/health
+curl -s https://zinger.kierkegaard.space/api/v1/predictions | jq '.signals.btc.action'
+curl -sN https://zinger.kierkegaard.space/api/v1/predictions/stream | head -2</pre>
+
+    <h2 id="d-errors">13 · Errors, CORS &amp; fair use</h2>
+    <ul>
+      <li><code>400</code> — bad parameter (e.g. <code>asset</code> not <code>btc</code>/<code>eth</code>): <code>{ "error": "…" }</code></li>
+      <li><code>404</code> — unknown market slug.</li>
+      <li>CORS is fully open; <code>OPTIONS</code> preflight returns <code>204</code>.</li>
+      <li>No API keys, no rate limits enforced today — please prefer the SSE streams over polling snapshots in a loop, and keep polling ≥ 1s if you must.</li>
+    </ul>
+
+    <h2 id="d-versioning">14 · Versioning &amp; stability</h2>
+    <p>The path prefix <code>/api/v1</code> is the compatibility contract: fields may be <em>added</em> at any time, but existing fields won't be renamed or removed within v1. Anything can be <code>null</code> while feeds warm up — write clients defensively. Breaking changes would ship as <code>/api/v2</code> alongside v1.</p>
+
+    <h2 id="d-risk">15 · Risk &amp; disclaimer</h2>
+    <p>Signals are statistical opinions about 5-minute windows, not financial advice. Confidence caps at 0.65 for a reason: short-horizon prediction is noisy and streaks of losses are normal (visible live in the paper stream). If you build an execution client: default to paper mode, cap per-trade risk, add a daily loss limit and kill switch, and never bypass the geographic or regulatory restrictions of your venue. Never send private keys to this API — it has no write surface and will never ask for them.</p>
+  `;
+  const toc = $('doc-toc');
+  toc.innerHTML = '<div class="toc-title">Protocol</div>';
+  document.querySelectorAll('#docs-body h2[id]').forEach(h => {
+    const link = document.createElement('a');
+    link.href = '#docs';
+    link.textContent = h.textContent.replace(/^\d+\s·\s/, '');
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      toc.querySelectorAll('a').forEach(a => a.classList.toggle('active', a === link));
+      h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    toc.appendChild(link);
+  });
+  $('client-body').innerHTML = `
+    <h2>Build an execution client</h2>
+    <div class="help" style="margin:0 0 1rem"><strong>Pattern:</strong> stream predictions → filter actionable signals → size → place on your venue → manage TP/SL locally.</div>
+    <h3>1. Connect to the stream</h3>
+    <pre>const API = 'https://zinger.kierkegaard.space/api/v1';
+const es = new EventSource(API + '/predictions/stream');
+es.onmessage = (ev) => {
+  const { signals, window, targetPrice, markets } = JSON.parse(ev.data);
+  handle(signals.btc, window);
+  handle(signals.eth, window);
+};</pre>
+    <h3>2. Act on a signal</h3>
+    <pre>function handle(sig, window) {
+  if (!sig || sig.action === 'hold' || sig.skipTrade) return;
+  // YOUR execution — Polymarket CLOB, another book, or paper
+  placeOrder({
+    market: sig.asset + ' updown 5m',
+    side: sig.direction,
+    tp: sig.takeProfit.price,
+    sl: sig.stopLoss.price,
+    windowRemaining: window?.remaining,
+  });
+}</pre>
+    <h3>3. Useful companions</h3>
+    <ul>
+      <li><code>GET /markets</code> — pick the current slug</li>
+      <li><code>GET /market/:slug</code> — book + mids before you send size</li>
+      <li><code>GET /charts/spot/stream?asset=btc</code> — raw spot ticks</li>
+      <li><strong>Docs → Sizing bounds</strong> — copy our paper/live Kelly ceilings, entry band, and exit bands exactly</li>
+    </ul>
+    <p>Never send private keys here. The public API cannot trade for you.</p>
+  `;
+  updateAgentPrompt('polymarket');
+}
+
+function buildAgentPrompt(venue) {
+  const isPoly = venue === 'polymarket';
+  const venueName = isPoly ? 'Polymarket' : 'Kalshi';
+  const venueRule = isPoly
+    ? 'Use the current official Polymarket CLOB client/SDK. Resolve the current UP/DOWN market from the public Zinger slug and map outcome token IDs before quoting or ordering.'
+    : 'Use the current official Kalshi API/SDK. Build a configurable market-mapping adapter from Zinger BTC/ETH 5-minute windows to the matching Kalshi event/market ticker; do not assume slug parity.';
+  return `Build a production-minded ${venueName} execution engine that consumes the Zinger public signal API.
+
+SOURCE API
+- Base URL: https://zinger.kierkegaard.space/api/v1
+- Live state: GET /predictions/stream (SSE, approximately every second)
+- Paper stream: GET /paper/stream (SSE)
+- Markets: GET /markets
+- Selected market/book: GET /market/:slug
+- Spot ticks: GET /charts/spot/stream?asset=btc|eth
+- Health: GET /health
+
+SIGNAL CONTRACT
+- signals.btc and signals.eth may be null while warming up.
+- action: buy_up | buy_down | hold
+- direction: up | down | neutral
+- confidence: 0..0.65
+- entry: reference share price
+- takeProfit: { pct, price }
+- stopLoss: { pct, price }
+- partial: { pct, price }
+- components: RSI, MACD, ADX, 1m momentum, volume, taker ratio, funding, aggregate score
+- skipTrade: boolean
+- window: { slug, symbol, closesAt, remaining, prices }
+
+VENUE ADAPTER
+${venueRule}
+- Define a VenueAdapter interface: resolveMarket, getBook, getBalances, placeLimitOrder, cancelOrder, getOrder, closePosition.
+- Keep venue-specific authentication and signing behind that adapter.
+- Read credentials only from environment variables. Never log secrets, private keys, API secrets, signatures, or full auth headers.
+
+EXECUTION RULES
+1. Reconnect SSE with exponential backoff and Last-Event-ID/idempotent processing.
+2. Ignore null, hold, neutral, stale (>10s), skipTrade, remaining <=20s, or confidence < configurable threshold (default 0.40).
+3. Resolve the venue market and verify it matches asset, direction, and active settlement window.
+4. Fetch the live book. Reject stale books, excessive spread, insufficient depth, or entry beyond configurable max.
+5. Size with Zinger paper bounds (replicate exactly unless the user overrides):
+   - minPositionSize $0.50, maxPositionSize/Cap $14, maxPositionPct 15% of bankroll
+   - hardCap = min(maxUsd, cash * 0.95); reserve 8% cash
+   - maxOpenPositions 3; maxConcurrentPerSlug 1; allowScaleIn false
+   - entry price band 0.38–0.88; remaining 30–270s; minConfidence 0.30
+   - tradeCount < 10: size = minUsd + (hardCap-minUsd)*(0.15 + conf*0.25), conf capped at 0.65
+   - tradeCount ≥ 10 and kellyRaw > 0: betPct = clamp(kellyRaw*0.10, 1%, 50%); size = bankroll*betPct*(0.35+conf*0.5); clamp to [minUsd, hardCap]
+   - kellyRaw ≤ 0: size 0 for live; paper may probe 1.2 + conf*2.5
+   - certainty favorites (ask > 0.5): optional upsize to min(bankroll*0.12, $14)
+   - exits: TP 18–42% by confidence, SL 12%, partial at 72% of TP path selling 35%
+   - live (stricter): max $2 / 6% bankroll, maxOpen 2, minConfidence 0.35, kellyFraction 0.08
+6. Submit a limit order with an idempotency/client-order key derived from signal timestamp + asset + window.
+7. Do not mark a position open until the venue confirms a fill. Handle partial fills explicitly.
+8. Manage TP, SL, partial TP, cancellation, and window expiry from confirmed filled shares only.
+9. Persist orders, fills, positions, signal decisions, and state transitions in a local database.
+10. On disconnect/restart, reconcile all open venue orders and positions before accepting new signals.
+
+SAFETY
+- Default to paper/dry-run. Require an explicit LIVE_TRADING=true gate.
+- Add max daily loss, max concurrent exposure, stale-signal cutoff, book-spread limit, circuit breaker, and kill switch.
+- Never bypass geographic, regulatory, account, or venue restrictions.
+- Use decimal-safe arithmetic for prices, shares, fees, and PnL.
+- Separate advisory signal confidence from venue-implied probability.
+
+DELIVERABLES
+- TypeScript project with strict mode.
+- Modular source: api/ZingerStream, venue/${venueName}Adapter, strategy/SignalPolicy, risk/RiskEngine, execution/OrderManager, state/Store.
+- CLI commands: doctor, paper, live, positions, cancel-all.
+- .env.example containing names only.
+- Unit tests for filtering, sizing, idempotency, partial fills, TP/SL, reconnect, and restart reconciliation.
+- Integration tests using mocked Zinger SSE and mocked ${venueName} responses.
+- README with setup, architecture, dry-run instructions, risk warnings, and live-enable checklist.
+
+Before coding, inspect the latest official ${venueName} SDK/API documentation and pin compatible package versions. Ask me only for choices that materially affect venue account type, credentials, market mapping, or risk limits.`;
+}
+
+function updateAgentPrompt(venue) {
+  $('agent-prompt').textContent = buildAgentPrompt(venue);
+  $('agent-prompt').dataset.venue = venue;
+}
+
+async function boot() {
+  buildDocs();
+  const hash = (location.hash || '#live').slice(1);
+  if (['live','signals','markets','docs','client'].includes(hash)) setTab(hash);
+  else setTab('live');
+
+  document.querySelectorAll('.nav [role="tab"]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  document.querySelectorAll('.venue-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.venue-btn').forEach(other => {
+        const active = other === btn;
+        other.classList.toggle('active', active);
+        other.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      updateAgentPrompt(btn.dataset.venue);
+    });
+  });
+  $('copy-agent-prompt').addEventListener('click', async () => {
+    const button = $('copy-agent-prompt');
+    try {
+      await navigator.clipboard.writeText($('agent-prompt').textContent);
+      button.textContent = 'Copied';
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents($('agent-prompt'));
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      button.textContent = 'Selected — copy';
+    }
+    setTimeout(() => { button.textContent = 'Copy for coding agent'; }, 1800);
+  });
+  document.querySelectorAll('.sig-asset').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.sig-asset').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+      btn.classList.add('active'); btn.setAttribute('aria-pressed','true');
+      state.sigAsset = btn.dataset.sig; state.activeComp = null;
+      renderCompList(state.pred?.signals?.[state.sigAsset]);
+      drawSignalCanvas();
+    };
+  });
+  $('show-btc').onchange = (e) => { state.show.btc = e.target.checked; drawSpotChart(); };
+  $('show-eth').onchange = (e) => { state.show.eth = e.target.checked; drawSpotChart(); };
+  $('show-target').onchange = (e) => { state.show.target = e.target.checked; drawSpotChart(); drawShareChart(); };
+  $('btn-reset-zoom').onclick = () => { state.zoom = { start:0, end:1 }; drawSpotChart(); };
+
+  $('sig-canvas').addEventListener('click', (e) => {
+    const hits = $('sig-canvas')._hits || [];
+    const rect = $('sig-canvas').getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const hit = hits.find(h => (h.x-x)**2 + (h.y-y)**2 < h.r**2);
+    if (!hit) return;
+    state.activeComp = hit.id;
+    renderCompList(state.pred?.signals?.[state.sigAsset]);
+    drawSignalCanvas();
+    $('comp-detail').textContent = `${hit.comp.label}: ${hit.comp.value} · vote ${hit.comp.vote}`;
+  });
+
+  bindChart('chart', 'chart');
+  bindChart('share-chart', 'share');
+
+  try {
+    const h = await fetch(API + '/health').then(r => r.json());
+    $('st-api').textContent = h.ok ? 'API live' : 'API down';
+    $('st-api').className = h.ok ? 'ok' : 'bad';
+  } catch {
+    $('st-api').textContent = 'API down';
+    $('st-api').className = 'bad';
+  }
+
+  try {
+    renderPred(await fetch(API + '/predictions').then(r => r.json()));
+  } catch {}
+
+  connectPred();
+  connectSpot('btc');
+  connectSpot('eth');
+
+  // local window countdown + clock — same reactive cadence as main app
+  setInterval(() => {
+    updateClock();
+    if (state.pred?.window?.remaining != null) {
+      state.pred.window.remaining = Math.max(0, Number(state.pred.window.remaining) - 1);
+    }
+    if (state.pred?.currentMarket?.remaining != null) {
+      state.pred.currentMarket.remaining = Math.max(0, Number(state.pred.currentMarket.remaining) - 1);
+    }
+    (state.pred?.markets || []).forEach(m => {
+      if (m.remaining != null) m.remaining = Math.max(0, Number(m.remaining) - 1);
+    });
+    renderTickStrip();
+    if (state.tab === 'markets') renderMarkets(state.pred?.markets || []);
+  }, 1000);
+
+  setInterval(() => { if (state.slug) loadBook(state.slug); }, 2000);
+  window.addEventListener('resize', () => { drawSpotChart(); drawShareChart(); drawSignalCanvas(); });
+}
+
+boot();
+</script>
+</body>
+</html>

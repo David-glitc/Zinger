@@ -1,0 +1,17 @@
+{
+  "name": "zinger-playground",
+  "version": "2.0.0",
+  "private": false,
+  "type": "module",
+  "description": "Public Zinger signal playground — live market data, pipeline signals (buy/sell/TP/SL), Kelly sizing. Bring your own execution.",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

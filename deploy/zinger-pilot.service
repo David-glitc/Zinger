@@ -1,0 +1,21 @@
+[Unit]
+Description=Zinger Pilot bot instance (usezinger.xyz)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/david/Zinger
+Environment=PORT=3010
+Environment=ZINGER_INSTANCE=pilot
+Environment=ZINGER_DATA_DIR=/home/david/Zinger/data-pilot
+EnvironmentFile=-/home/david/Zinger/.env
+EnvironmentFile=-/home/david/Zinger/deploy/pilot.env
+ExecStart=/home/david/.local/share/fnm/node-versions/v22.22.3/installation/bin/node /home/david/Zinger/index.js
+Restart=always
+RestartSec=5
+StandardOutput=append:/tmp/zinger-pilot.log
+StandardError=append:/tmp/zinger-pilot.log
+
+[Install]
+WantedBy=default.target

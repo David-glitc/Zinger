@@ -1,0 +1,27 @@
+# Coolify Traefik → Pilot container on coolify network
+# (host :3010 is blocked by UFW from docker; run: docker start zinger-pilot)
+http:
+  routers:
+    usezinger-http:
+      middlewares:
+        - redirect-to-https@file
+      entryPoints:
+        - http
+      service: zinger-pilot
+      rule: Host(`usezinger.xyz`) || Host(`www.usezinger.xyz`)
+    usezinger-https:
+      entryPoints:
+        - https
+      service: zinger-pilot
+      rule: Host(`usezinger.xyz`) || Host(`www.usezinger.xyz`)
+      tls:
+        certresolver: letsencrypt
+        domains:
+          - main: usezinger.xyz
+            sans:
+              - www.usezinger.xyz
+  services:
+    zinger-pilot:
+      loadBalancer:
+        servers:
+          - url: "http://zinger-pilot:3010"

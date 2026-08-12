@@ -1,41 +1,72 @@
-# Zinger
+# Zinger Core
 
-Automated token launch stress testing on Robinhood Chain via BasedBid.
+Polymarket BTC/ETH up-or-down trading bot with paper and live modes, operator dashboard, optional Telegram command center, and ML helpers.
 
-## Setup
+> This public tree is **Core only**. Runtime ledgers, wallets, and production deploy secrets are not included.
+
+## Features
+
+- Paper and live Polymarket CLOB trading (5m / 15m / 30m / 1h windows when listed)
+- Signal + optional ML overlays, Kelly/certainty sizing, TP/SL / hold-to-settle plans
+- Regime governor and LLM optimizer hooks (OpenRouter)
+- Operator UI (`frontend/`) served from Core at `/poly`
+- Optional Telegram control surface
+
+## Quick start (paper)
 
 ```bash
-# 1. Install OpenBid SDK
-git clone https://github.com/basedbid-public/openbid.git /tmp/openbid
-cd /tmp/openbid && npm install
-
-# 2. Setup this project
-cd /home/david/Zinger
+git clone <repo-url> zinger-core
+cd zinger-core
 npm install
+cd frontend && npm install && npm run build && cd ..
 cp .env.example .env
-# Edit .env with your PRIVATE_KEY and DEV_ADDRESS
+# set AUTH_PASSWORD=...
+npm start
 ```
 
-## Usage
+Open `http://localhost:3000/poly`, sign in with `AUTH_PASSWORD`, keep mode on **paper**.
+
+## Configuration
+
+See [`.env.example`](.env.example). Important knobs:
+
+| Variable | Purpose |
+|----------|---------|
+| `AUTH_PASSWORD` | Dashboard login |
+| `OPENROUTER_API_KEY` | Optional LLM governor/optimizer |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional Telegram |
+| `CLOB_PROXY_URL` | Optional SOCKS/HTTP egress for order writes |
+| `ZINGER_DATA_DIR` | Override runtime data directory (default `./data`) |
+
+Live trading requires a wallet file created by Core under `data/wallet.json` (gitignored) and Polymarket-ready collateral. Start paper-first.
+
+## Layout
+
+```
+index.js          # process entry
+src/              # Express API, Polymarket bot, AI, Telegram
+frontend/         # Vite operator dashboard
+ml/               # Training / export scripts (no weights in-git)
+docker/           # Optional container samples
+data/             # Runtime only (gitignored; .gitkeep placeholder)
+```
+
+## Docker
 
 ```bash
-# Launch 3 tokens (flash tokens with fee builder)
-npm run automate
-
-# Trade volume on launched tokens
-npm run trade
-
-# View dashboard
-npm start
-# Open http://localhost:3000
-
-# Generate report
-npm run report
+cp .env.example .env
+# fill OPENROUTER_API_KEY / AUTH_PASSWORD as needed
+docker compose -f docker/docker-compose.yml up --build
 ```
 
-## Architecture
+## Security
 
-- Robinhood Chain (chainId 4663) - Arbitrum L2
-- BasedBid Flash Tokens via OpenBid SDK
-- Uniswap V4 with Fee Builder
-- 3-5% DEX fee tiers with dynamic fee multipliers
+Read [SECURITY.md](SECURITY.md). Never publish funded keys or live `.env` files.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)

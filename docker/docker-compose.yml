@@ -11,7 +11,9 @@ services:
       - PORT=3000
       - OPENBID_PATH=/tmp/openbid
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - SITE_URL=https://zinger.kierkegaard.space
+      - SITE_URL=${SITE_URL:-http://localhost:3000}
+      - ZINGER_SQLITE=1
+      - ZINGER_DB_PATH=/app/data/zinger.db
     volumes:
       - zinger_data:/app/data
 

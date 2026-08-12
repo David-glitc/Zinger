@@ -1,0 +1,29 @@
+# Coolify Traefik dynamic route for Pilot product
+# Install (needs root):
+#   sudo cp /home/david/Zinger/deploy/traefik-zinger-xyz.yaml /data/coolify/proxy/dynamic/zinger-xyz.yaml
+# DNS: point usezinger.xyz (+ www) and optionally zinger.xyz A → VPS public IP
+#   (same host as zinger.kierkegaard.space)
+#
+# Architecture:
+#   usezinger.xyz          → :3010  Pilot instance (UI + API + optional paper bot)
+#   zinger.kierkegaard.space → :3000  Experiment / core bot (published paper → playground)
+#   play.zinger…           → Vercel  Playground (reads experiment /api/v1)
+
+http:
+  routers:
+    usezinger-http:
+      middlewares: [redirect-to-https@file]
+      entryPoints: [http]
+      service: zinger-pilot
+      rule: Host(`usezinger.xyz`) || Host(`www.usezinger.xyz`) || Host(`zinger.xyz`) || Host(`www.zinger.xyz`)
+    usezinger-https:
+      entryPoints: [https]
+      service: zinger-pilot
+      rule: Host(`usezinger.xyz`) || Host(`www.usezinger.xyz`) || Host(`zinger.xyz`) || Host(`www.zinger.xyz`)
+      tls:
+        certresolver: letsencrypt
+  services:
+    zinger-pilot:
+      loadBalancer:
+        servers:
+          - url: "http://10.0.1.1:3010"
