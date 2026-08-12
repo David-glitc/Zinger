@@ -7,8 +7,11 @@ TIMEFRAMES = {
     '1h':   {'limit': 1000,  'years': 5,    'seq_len': 64,  'pred_horizons': [1, 4, 24]},
 }
 
-DATA_DIR = '/home/david/Zinger/data/ml'
-MODEL_DIR = '/home/david/Zinger/data/ml/models'
+import os
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+_DATA_ROOT = os.environ.get('ZINGER_DATA_DIR', os.path.join(_ROOT, 'data'))
+DATA_DIR = os.path.join(_DATA_ROOT, 'ml')
+MODEL_DIR = os.path.join(DATA_DIR, 'models')
 
 USE_CUDA = True
 SEED = 42

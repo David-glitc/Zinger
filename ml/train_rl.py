@@ -7,6 +7,7 @@ import json
 import numpy as np
 import torch
 from datetime import datetime
+from sqlite_store import store_save
 
 from config import (
     SYMBOLS, TIMEFRAMES, MODEL_DIR, RL_TIMESTEPS, RL_LEARNING_RATE,
@@ -168,8 +169,7 @@ def train_rl():
     for k, v in metrics.items():
         print(f'  {k}: {v:.4f}')
 
-    with open(os.path.join(MODEL_DIR, 'rl_metrics.json'), 'w') as f:
-        json.dump(metrics, f)
+    store_save('ml/models/rl_metrics.json', metrics)
 
 
 if __name__ == '__main__':

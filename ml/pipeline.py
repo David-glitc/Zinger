@@ -14,6 +14,7 @@ import json
 import subprocess
 
 from config import MODEL_DIR, SYMBOLS, TIMEFRAMES
+from sqlite_store import store_load
 
 
 def step(msg):
@@ -46,13 +47,10 @@ def verify_models():
 
     print(f'\nTraining histories: {len(histories)}')
     for h in sorted(histories):
-        try:
-            with open(os.path.join(MODEL_DIR, h)) as f:
-                data = json.load(f)
-            best = min(data, key=lambda x: x['val_loss']) if data else {}
-            print(f'  {h}: best val_loss={best.get("val_loss", "N/A")}, val_acc={best.get("val_acc", "N/A")}')
-        except:
-            print(f'  {h}: (unreadable)')
+        label = h.replace('_history.json', '')
+        data = store_load(f'ml/models/{label}_history.json', [])
+        best = min(data, key=lambda x: x['val_loss']) if data else {}
+        print(f'  {h}: best val_loss={best.get("val_loss", "N/A")}, val_acc={best.get("val_acc", "N/A")}')
 
 
 def test_inference():
@@ -78,6 +76,12 @@ def test_inference():
     print(f'\nEnsemble signal: {json.dumps(ensemble, indent=2)}')
 
 
+def export_onnx():
+    step('Step 3: Exporting ONNX models for Node.js runtime')
+    from export_onnx import main as export_main
+    export_main()
+
+
 def main():
     os.makedirs(MODEL_DIR, exist_ok=True)
     start = time.time()
@@ -88,6 +92,8 @@ def main():
         train_lstm()
     elif phases == 'rl':
         train_rl()
+    elif phases == 'onnx':
+        export_onnx()
     elif phases == 'verify':
         verify_models()
     elif phases == 'test':
@@ -95,10 +101,11 @@ def main():
     elif phases == 'all':
         train_lstm()
         train_rl()
+        export_onnx()
         verify_models()
         test_inference()
     else:
-        print(f'Usage: python pipeline.py [lstm|rl|verify|test|all]')
+        print(f'Usage: python pipeline.py [lstm|rl|onnx|verify|test|all]')
 
     elapsed = time.time() - start
     print(f'\nTotal time: {elapsed/60:.1f} min')
