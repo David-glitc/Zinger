@@ -7,10 +7,10 @@ export const pilotService = {
     return localFetch<PilotSnapshot>(`/api/pilot${q}`);
   },
 
-  connectWallet(address: string, chainId: number) {
+  connectWallet(address: string, chainId: number, signature?: string, message?: string) {
     return localFetch<{ ok: boolean; account: Account; isNew?: boolean; token?: string }>(
       "/api/pilot/connect",
-      { method: "POST", body: JSON.stringify({ address, chainId }) },
+      { method: "POST", body: JSON.stringify({ address, chainId, signature, message }) },
     );
   },
 

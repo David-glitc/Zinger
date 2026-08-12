@@ -6,6 +6,7 @@ export type AuthContext = {
   kind: "full" | "paper";
   wallet: string | null;
   sub: string | null;
+  iat: number | null;
 };
 
 /** Reads and verifies the zg_access cookie. Returns null when absent/invalid. */
@@ -20,6 +21,7 @@ export async function getAuth(): Promise<AuthContext | null> {
       kind: payload.kind === "paper" ? "paper" : "full",
       wallet: typeof payload.wallet === "string" ? payload.wallet.toLowerCase() : null,
       sub: typeof payload.sub === "string" ? payload.sub : null,
+      iat: typeof payload.iat === "number" ? payload.iat : null,
     };
   } catch {
     return null;

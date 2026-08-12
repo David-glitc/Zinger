@@ -19,8 +19,17 @@ export function usePilotSnapshot(address?: string | null, enabled = true) {
 export function useConnectWallet() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ address, chainId }: { address: string; chainId: number }) =>
-      pilotService.connectWallet(address.toLowerCase(), chainId),
+    mutationFn: ({
+      address,
+      chainId,
+      signature,
+      message,
+    }: {
+      address: string;
+      chainId: number;
+      signature?: string;
+      message?: string;
+    }) => pilotService.connectWallet(address.toLowerCase(), chainId, signature, message),
     onSuccess: (data, vars) => {
       if (data.token) {
         storeToken(data.token);
