@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-export const CLOCK_TICK_MS = 10;
-export const POLY_POLL_MS = 200;
+export const CLOCK_TICK_MS = 16;
+export const POLY_POLL_MS = 250;
 
 /** Format milliseconds as M:SS.mmm */
 export function fmtCountdownMs(totalMs) {
@@ -45,8 +45,10 @@ export function LiveCountdown({ endAtMs, fallbackSeconds, fallbackMs, className 
 }
 
 export function LiveClock({ className }) {
-  useLiveTick(CLOCK_TICK_MS);
-  return <span className={`poly-clock-ms ${className || ''}`.trim()}>{fmtTimeMs(Date.now())}</span>;
+  useLiveTick(250);
+  const now = new Date();
+  const value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  return <span className={className}>{value}</span>;
 }
 
 export function LiveUptime({ startedAt, fallbackSeconds, className }) {
