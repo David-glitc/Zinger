@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { loadFileOrStore, saveFileOrStore } from '../polymarket/sqliteStore.js';
 import { createPublicClient, createWalletClient, http, formatEther, parseEther, parseAbi, formatUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { robinhood } from 'viem/chains';
@@ -70,7 +71,7 @@ const factoryAbi = [
 
 function getWallet() {
   const walletFile = path.join(ROOT, 'data', 'wallet.json');
-  return JSON.parse(fs.readFileSync(walletFile, 'utf-8'));
+  return loadFileOrStore(walletFile, null);
 }
 
 function randomSalt() {
@@ -248,14 +249,13 @@ export async function sellToken({ tokenAddress, pool, amountToSell, sellAll }) {
 
 export function loadTransactions() {
   const file = path.join(ROOT, 'data', 'transactions.json');
-  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); }
-  catch { return []; }
+  return loadFileOrStore(file, []);
 }
 
 export function addTransaction(tx) {
   const txs = loadTransactions();
   txs.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 4), ...tx, timestamp: new Date().toISOString() });
-  fs.writeFileSync(path.join(ROOT, 'data', 'transactions.json'), JSON.stringify(txs, null, 2));
+  saveFileOrStore(path.join(ROOT, 'data', 'transactions.json'), txs);
   return txs[txs.length - 1];
 }
 

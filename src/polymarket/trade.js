@@ -4,14 +4,30 @@ import { polygon } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getWallet } from '../lib/wallet.js';
 import { POLY } from './config.js';
+import { installClobProxy, getClobProxyUrl } from './proxyEnv.js';
 
-const HOST = POLY.clobApi;
+const CLOB_WRITE_RELAY = process.env.CLOB_PROXY_API_URL?.trim() || '';
+
+// Optional HTTP/SOCKS egress for CLOB writes. Reads stay direct in clob.js.
+installClobProxy();
+
+/** Prefer proxied direct CLOB when CLOB_PROXY_URL is set; else optional write relay; else direct. */
+function resolveWriteHost() {
+  if (getClobProxyUrl()) return POLY.clobApi;
+  if (CLOB_WRITE_RELAY) return CLOB_WRITE_RELAY;
+  return POLY.clobApi;
+}
+
+const HOST = process.env.CLOB_API_URL?.trim() || POLY.clobApi;
+const WRITE_HOST = resolveWriteHost();
 const RPC = 'https://polygon-bor.publicnode.com';
 
 let _signer = null;
 let _account = null;
 let _creds = null;
 let _client = null;
+let _proxyCreds = null;
+let _proxyClient = null;
 
 function getAccount() {
   if (!_account) {
@@ -60,6 +76,20 @@ export async function getTradingClient() {
   return _client;
 }
 
+async function ensureProxyApiKey() {
+  if (_proxyCreds) return _proxyCreds;
+  const client = new ClobClient({ host: WRITE_HOST, chain: POLY.chainId, signer: getSigner(), ...getClientOptions() });
+  _proxyCreds = await client.createOrDeriveApiKey();
+  return _proxyCreds;
+}
+
+async function getProxyTradingClient() {
+  if (_proxyClient) return _proxyClient;
+  const creds = await ensureProxyApiKey();
+  _proxyClient = new ClobClient({ host: WRITE_HOST, chain: POLY.chainId, signer: getSigner(), creds, ...getClientOptions() });
+  return _proxyClient;
+}
+
 export function getWalletAddress() {
   return getAccount().address;
 }
@@ -104,8 +134,19 @@ function sharesForUsd(usd, price, minShares = 5) {
   return Number(shares.toFixed(2));
 }
 
+/** CLOB returns {success:false, errorMsg} instead of throwing — surface it. */
+function assertOrderAccepted(result, context) {
+  const id = result?.orderID || result?.orderId || result?.id;
+  const failed = result?.success === false || result?.error || result?.errorMsg;
+  if (failed || !id) {
+    const msg = result?.errorMsg || result?.error || (id ? 'order rejected' : 'no orderID in response');
+    throw new Error(`${context}: ${String(msg).slice(0, 200)}`);
+  }
+  return id;
+}
+
 export async function placeOrder({ tokenId, side, amountUsd, price, negRisk = false, tickSize = '0.01', minShares = 5 }) {
-  const client = await getTradingClient();
+  const client = await getProxyTradingClient();
   const px = roundPrice(price, Number(tickSize));
   const size = sharesForUsd(amountUsd, px, minShares);
   const orderSide = side === 'buy' ? Side.BUY : Side.SELL;
@@ -115,31 +156,36 @@ export async function placeOrder({ tokenId, side, amountUsd, price, negRisk = fa
     { tickSize: String(tickSize), negRisk: !!negRisk },
   );
 
+  const id = assertOrderAccepted(result, `CLOB ${side} ${size}sh @ ${px}`);
+
   return {
-    id: result?.orderID || result?.orderId || result?.id,
+    id,
     order: result,
     price: px,
     size,
     side: orderSide,
+    status: result?.status || null,
   };
 }
 
 export async function placeMarketSell({ tokenId, shares, negRisk = false, tickSize = '0.01' }) {
-  const client = await getTradingClient();
+  const client = await getProxyTradingClient();
   const result = await client.createAndPostMarketOrder(
     { tokenID: String(tokenId), amount: shares, side: Side.SELL },
     { tickSize: String(tickSize), negRisk: !!negRisk },
   );
+  const id = assertOrderAccepted(result, `CLOB market sell ${shares}sh`);
   return {
-    id: result?.orderID || result?.orderId || result?.id,
+    id,
     order: result,
     size: shares,
+    status: result?.status || null,
   };
 }
 
 export async function cancelOrder(orderId) {
   try {
-    const client = await getTradingClient();
+    const client = await getProxyTradingClient();
     await client.cancelOrder({ orderID: orderId });
     return true;
   } catch {
@@ -150,7 +196,7 @@ export async function cancelOrder(orderId) {
 export const deriveApiKey = ensureApiKey;
 
 export async function syncClobBalance() {
-  const client = await getTradingClient();
+  const client = await getProxyTradingClient();
   await client.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL });
   return getClobBalance();
 }
@@ -158,4 +204,6 @@ export async function syncClobBalance() {
 export function resetTradingClient() {
   _creds = null;
   _client = null;
+  _proxyCreds = null;
+  _proxyClient = null;
 }

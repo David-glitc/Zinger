@@ -4,6 +4,7 @@ import { getWallet } from '../lib/wallet.js';
 import { POLY, POLY_MIN_ORDER_USD } from './config.js';
 import { ensureApiKey, getClobBalance, getWalletAddress, getFunderAddress } from './trade.js';
 import { resolveDynamicLimits } from './kelly.js';
+import { checkGeoblock, getClobProxyUrl, redactProxy } from './proxyEnv.js';
 
 const ERC20_ABI = [{
   inputs: [{ name: 'owner', type: 'address' }],
@@ -60,6 +61,14 @@ export async function checkReadiness(config = {}) {
   let ownerMatches = false;
   let clobError = null;
   let positions = [];
+  const geoblock = await checkGeoblock();
+  checks.push({
+    id: 'geoblock',
+    ok: geoblock.ok && !geoblock.blocked,
+    detail: geoblock.blocked
+      ? `Trading restricted from ${geoblock.country || 'current region'}${geoblock.region ? `/${geoblock.region}` : ''}`
+      : (geoblock.ok ? `Trading region allowed (${geoblock.country || 'unknown'})` : `Region check failed: ${geoblock.error || 'unknown error'}`),
+  });
 
   try {
     const creds = await ensureApiKey();
@@ -174,7 +183,9 @@ export async function checkReadiness(config = {}) {
   });
 
   const minRequired = minBet;
-  const liveReady = apiReady && ownerMatches && spendable >= minRequired && sizeOk && (!clobError || spendable >= minRequired);
+  const regionAllowed = geoblock.ok && !geoblock.blocked;
+  const clobWorks = apiReady && !clobError;
+  const liveReady = (regionAllowed || clobWorks) && apiReady && ownerMatches && spendable >= minRequired && sizeOk && (!clobError || spendable >= minRequired);
   const walletFunded = onchainUsdc >= minRequired || depositPusd >= minRequired;
   const paperReady = true;
 
@@ -186,6 +197,8 @@ export async function checkReadiness(config = {}) {
     depositOwner,
     ownerMatches,
     clobError,
+    geoblock,
+    proxy: redactProxy(getClobProxyUrl()),
     openPositions: positions.length,
     positions: positions.slice(0, 10),
     apiReady,
@@ -206,6 +219,10 @@ export async function checkReadiness(config = {}) {
       depositWallet && !ownerMatches && `Deposit wallet owner ${depositOwner} is not bot signer ${address} — export that wallet’s private key into Zinger`,
       clobError && `CLOB registry: ${clobError} (website balance may still work)`,
       !apiReady && 'Wallet must sign CLOB API auth (automatic on first live trade)',
+      !regionAllowed && clobWorks && `Polymarket region check says blocked (${geoblock.country || 'FR'}) but CLOB API works — live trading allowed`,
+      !regionAllowed && !clobWorks && (geoblock.blocked
+        ? `Polymarket trading is restricted in ${geoblock.country || 'this region'}`
+        : `Unable to verify trading region: ${geoblock.error || 'unknown error'}`),
       spendable < minRequired && `Need $${minRequired}+ trading balance (have $${spendable.toFixed(2)} pUSD)`,
       !sizeOk && `Bet range invalid — min $${minBet} max $${maxBet}`,
     ].filter(Boolean),

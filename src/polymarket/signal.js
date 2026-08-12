@@ -1,4 +1,5 @@
 const BINANCE = 'https://api.binance.com';
+const BINANCE_FUTURES = 'https://fapi.binance.com';
 
 export async function fetchCandles(symbol = 'BTCUSDT', interval = '1m', limit = 200) {
   const url = `${BINANCE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -8,7 +9,28 @@ export async function fetchCandles(symbol = 'BTCUSDT', interval = '1m', limit = 
   return data.map(k => ({
     time: k[0], open: parseFloat(k[1]), high: parseFloat(k[2]),
     low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5]),
+    takerBuyBase: parseFloat(k[9] || 0),
   }));
+}
+
+/** Perp funding + mark premium — short-horizon risk sentiment */
+export async function fetchFunding(symbol = 'BTCUSDT') {
+  try {
+    const url = `${BINANCE_FUTURES}/fapi/v1/premiumIndex?symbol=${symbol}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return {
+      fundingRate: Number(d.lastFundingRate || 0),
+      markPrice: Number(d.markPrice || 0),
+      indexPrice: Number(d.indexPrice || 0),
+      premium: d.markPrice && d.indexPrice
+        ? (Number(d.markPrice) - Number(d.indexPrice)) / Number(d.indexPrice)
+        : 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function ema(prices, period) {
@@ -16,10 +38,6 @@ function ema(prices, period) {
   let v = prices.slice(0, period).reduce((s, p) => s + p, 0) / period;
   for (let i = period; i < prices.length; i++) v = prices[i] * k + v * (1 - k);
   return v;
-}
-
-function sma(prices, period) {
-  return prices.slice(-period).reduce((s, p) => s + p, 0) / period;
 }
 
 function rsi(prices, period = 14) {
@@ -79,116 +97,117 @@ function volumeProfile(candles, bins = 10) {
   return { poc: low + binSize * (maxIdx + 0.5), pocIdx: maxIdx, valueHigh: low + binSize * bins };
 }
 
-export function analyze(candles) {
+export function analyze(candles, extras = {}) {
   if (!candles || candles.length < 50) return null;
 
   const c = candles.map(x => x.close);
   const cur = c[c.length - 1];
   const prev = c[c.length - 2];
   const o5 = candles[candles.length - 5]?.close || cur;
-  const o15 = candles[candles.length - 15]?.close || cur;
 
-  // Multi-timeframe momentum
-  const mom = { m1: (cur - prev) / prev * 100, m5: (cur - o5) / o5 * 100, m15: c.length >= 15 ? (cur - c[c.length - 15]) / c[c.length - 15] * 100 : 0 };
+  const mom = {
+    m1: (cur - prev) / prev * 100,
+    m5: (cur - o5) / o5 * 100,
+    m15: c.length >= 15 ? (cur - c[c.length - 15]) / c[c.length - 15] * 100 : 0,
+  };
 
-  // Volatility
   const ranges = candles.slice(-10).map(x => x.high - x.low);
   const atr = ranges.reduce((s, r) => s + r, 0) / ranges.length;
   const atrPct = atr / cur * 100;
 
-  // RSI
   const rsiVal = rsi(c, 14);
-
-  // MACD
   const macdData = macd(c);
-
-  // Bollinger
   const bb = bollinger(c);
   const bbPos = (cur - bb.lower) / (bb.upper - bb.lower);
-
-  // ADX trend strength
   const adxData = adx(candles);
 
-  // Volume
   const v3 = candles.slice(-3).reduce((s, x) => s + x.volume, 0) / 3;
   const v6 = candles.slice(-6, -3).reduce((s, x) => s + x.volume, 0) / 3;
   const volRatio = v6 > 0 ? v3 / v6 : 1;
 
-  // Volume Profile
-  const vp = volumeProfile(candles);
+  const recent5 = candles.slice(-5);
+  const vol5 = recent5.reduce((s, x) => s + (x.volume || 0), 0);
+  const takerBuy5 = recent5.reduce((s, x) => s + (x.takerBuyBase || 0), 0);
+  const takerBuyRatio = vol5 > 0 ? takerBuy5 / vol5 : 0.5;
 
-  // EMAs
-  const ema9 = ema(c, 9), ema21 = ema(c, 21), ema50 = ema(c, 50);
+  const vp = volumeProfile(candles);
+  const ema9 = ema(c, 9), ema21 = ema(c, 21);
   const emaBull = ema9 > ema21;
 
-  // Divergence check
   const priceHigher = cur > c[c.length - 5];
   const rsiHigher = rsiVal > rsi(c.slice(0, -4), 14);
   const bearDiv = priceHigher && !rsiHigher;
   const bullDiv = !priceHigher && rsiHigher;
 
-  // Machine scoring
   let score = 0;
   const signals = [];
+  const shortW = 2.0;
 
-  // Regime filter
-  const trending = adxData.trend !== 'range';
-
-  // RSI extremes
   if (rsiVal < 25) { score += 3; signals.push('RSI_OVERSOLD'); }
   else if (rsiVal < 40) { score += 1.5; signals.push('rsi_low'); }
   else if (rsiVal > 75) { score -= 3; signals.push('RSI_OVERBOUGHT'); }
   else if (rsiVal > 60) { score -= 1.5; signals.push('rsi_high'); }
 
-  // Momentum confluence
-  if (mom.m1 > 0.08 && mom.m5 > 0.15) { score += 1.5; signals.push('mom_confluence_up'); }
-  else if (mom.m1 < -0.08 && mom.m5 < -0.15) { score -= 1.5; signals.push('mom_confluence_down'); }
-  else if (mom.m1 > 0.03) { score += 0.5; signals.push('mom1_up'); }
-  else if (mom.m1 < -0.03) { score -= 0.5; signals.push('mom1_down'); }
+  if (mom.m1 > 0.05) { score += 1.8 * shortW * 0.5; signals.push('mom1_up'); }
+  else if (mom.m1 < -0.05) { score -= 1.8 * shortW * 0.5; signals.push('mom1_down'); }
+  if (mom.m1 > 0.08 && mom.m5 > 0.12) { score += 2; signals.push('mom_confluence_up'); }
+  else if (mom.m1 < -0.08 && mom.m5 < -0.12) { score -= 2; signals.push('mom_confluence_down'); }
+  if (Math.abs(mom.m15) > 0.25) {
+    score += Math.sign(mom.m15) * 0.25;
+    signals.push(mom.m15 > 0 ? 'mom15_soft_up' : 'mom15_soft_down');
+  }
 
-  // MACD strength
-  if (macdData.hist > 0 && macdData.macd > 0) { score += 1.5; signals.push('macd_bull_strong'); }
-  else if (macdData.hist > 0) { score += 0.5; signals.push('macd_bull'); }
-  else if (macdData.hist < 0 && macdData.macd < 0) { score -= 1.5; signals.push('macd_bear_strong'); }
-  else if (macdData.hist < 0) { score -= 0.5; signals.push('macd_bear'); }
+  if (macdData.hist > 0 && macdData.macd > 0) { score += 0.75; signals.push('macd_bull_strong'); }
+  else if (macdData.hist > 0) { score += 0.25; signals.push('macd_bull'); }
+  else if (macdData.hist < 0 && macdData.macd < 0) { score -= 0.75; signals.push('macd_bear_strong'); }
+  else if (macdData.hist < 0) { score -= 0.25; signals.push('macd_bear'); }
 
-  // Bollinger squeeze + position
   if (bbPos < 0.15) { score += 2; signals.push('bb_lower_band'); }
   else if (bbPos < 0.3) { score += 1; signals.push('bb_low'); }
   else if (bbPos > 0.85) { score -= 2; signals.push('bb_upper_band'); }
   else if (bbPos > 0.7) { score -= 1; signals.push('bb_high'); }
   if (bb.width < 3) signals.push('BB_SQUEEZE');
 
-  // ADX trend
-  if (adxData.trend === 'up') { score += 1; signals.push('adx_up'); }
-  else if (adxData.trend === 'down') { score -= 1; signals.push('adx_down'); }
+  if (adxData.trend === 'up') { score += 0.4; signals.push('adx_up'); }
+  else if (adxData.trend === 'down') { score -= 0.4; signals.push('adx_down'); }
   if (adxData.adx > 30) signals.push('strong_trend');
 
-  // EMA alignment
-  if (cur > ema9 && ema9 > ema21) { score += 1; signals.push('ema_bull'); }
-  else if (cur < ema9 && ema9 < ema21) { score -= 1; signals.push('ema_bear'); }
+  if (cur > ema9 && ema9 > ema21) { score += 0.5; signals.push('ema_bull'); }
+  else if (cur < ema9 && ema9 < ema21) { score -= 0.5; signals.push('ema_bear'); }
 
-  // Volume confirmation
-  if (volRatio > 1.5 && mom.m1 > 0) { score += 1; signals.push('vol_surge_up'); }
-  else if (volRatio > 1.5 && mom.m1 < 0) { score -= 1; signals.push('vol_surge_down'); }
+  if (volRatio > 1.5 && mom.m1 > 0) { score += 1.2; signals.push('vol_surge_up'); }
+  else if (volRatio > 1.5 && mom.m1 < 0) { score -= 1.2; signals.push('vol_surge_down'); }
 
-  // Divergence
+  if (takerBuyRatio >= 0.58) { score += 1.4; signals.push('taker_buy_dom'); }
+  else if (takerBuyRatio <= 0.42) { score -= 1.4; signals.push('taker_sell_dom'); }
+
   if (bearDiv) { score -= 1.5; signals.push('BEAR_DIV'); }
   if (bullDiv) { score += 1.5; signals.push('BULL_DIV'); }
 
-  // Price vs volume profile
   if (cur < vp.poc * 0.98) { score += 0.5; signals.push('below_poc'); }
   else if (cur > vp.poc * 1.02) { score -= 0.5; signals.push('above_poc'); }
 
-  // Volatility filter
+  const funding = extras?.funding || null;
+  if (funding && Number.isFinite(funding.fundingRate)) {
+    if (funding.fundingRate > 0.00015) { score -= 0.8; signals.push('funding_long_crowd'); }
+    else if (funding.fundingRate < -0.00015) { score += 0.8; signals.push('funding_short_crowd'); }
+    if (Math.abs(funding.premium || 0) > 0.0008) {
+      score += funding.premium > 0 ? -0.5 : 0.5;
+      signals.push(funding.premium > 0 ? 'mark_premium' : 'mark_discount');
+    }
+  }
+
+  const lead = extras?.leadMom1;
+  if (lead != null && Number.isFinite(lead) && Math.abs(lead) > 0.04) {
+    score += Math.sign(lead) * 1.1;
+    signals.push(lead > 0 ? 'btc_lead_up' : 'btc_lead_down');
+  }
+
   const skipTrade = atrPct > 0.5;
-
-  // Direction
-  const direction = score > 1 ? 'up' : score < -1 ? 'down' : 'neutral';
-  const confidence = Math.min(Math.abs(score) / 10, 1);
-
-  // Kelly-friendly: expected edge
-  const edge = score / 10; // normalized edge estimate
+  const direction = score > 2.5 ? 'up' : score < -2.5 ? 'down' : 'neutral';
+  const absScore = Math.abs(score);
+  const confidence = Math.min(0.65, Math.round((0.28 + absScore * 0.055) * 100) / 100);
+  const edge = Math.sign(score) * confidence;
 
   return {
     score: Math.round(score * 10) / 10,
@@ -201,24 +220,45 @@ export function analyze(candles) {
     adx: adxData,
     momentum: mom,
     volatility: { atr: Math.round(atr * 100) / 100, atrPct: Math.round(atrPct * 100) / 100 },
-    volume: { ratio: Math.round(volRatio * 10) / 10 },
+    volume: { ratio: Math.round(volRatio * 10) / 10, takerBuyRatio: Math.round(takerBuyRatio * 100) / 100 },
     ema: { ema9: Math.round(ema9 * 10) / 10, ema21, emaBull },
+    funding: funding ? {
+      rate: Math.round(funding.fundingRate * 1e6) / 1e6,
+      premium: Math.round((funding.premium || 0) * 1e6) / 1e6,
+    } : null,
     skipTrade,
+    tooVolatile: skipTrade,
     signals,
+    shortTf: true,
     price: cur,
     timestamp: Date.now(),
   };
 }
 
-export async function getSignal(asset = 'BTC') {
+export async function getSignal(asset = 'BTC', extras = {}) {
   const symbol = asset === 'BTC' ? 'BTCUSDT' : 'ETHUSDT';
-  const candles = await fetchCandles(symbol);
+  const [candles, funding] = await Promise.all([
+    fetchCandles(symbol),
+    fetchFunding(symbol),
+  ]);
   if (!candles) return null;
-  return analyze(candles);
+  return analyze(candles, { ...extras, funding });
 }
 
 export async function getSignalForBoth() {
-  const [btc, eth] = await Promise.all([getSignal('BTC'), getSignal('ETH')]);
+  const [btcCandles, ethCandles, btcFund, ethFund] = await Promise.all([
+    fetchCandles('BTCUSDT'),
+    fetchCandles('ETHUSDT'),
+    fetchFunding('BTCUSDT'),
+    fetchFunding('ETHUSDT'),
+  ]);
+  const btc = btcCandles ? analyze(btcCandles, { funding: btcFund }) : null;
+  const eth = ethCandles
+    ? analyze(ethCandles, {
+      funding: ethFund,
+      leadMom1: btc?.momentum?.m1 ?? null,
+    })
+    : null;
   return { btc, eth };
 }
 

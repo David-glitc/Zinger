@@ -122,10 +122,13 @@ export function getConfidenceBias(asset, rawSignal) {
   }
 
   const totalBias = confidenceBoost + momentumBoost + (traceBoost || 0);
-  const adjusted = Math.max(0, Math.min(1, (rawSignal?.confidence || 0) + totalBias));
+  // Hard cap — inflated ML/consensus conf caused false certainty and bad TP/SL
+  const CONF_CAP = 0.65;
+  const adjusted = Math.max(0, Math.min(CONF_CAP, (rawSignal?.confidence || 0) + totalBias * 0.5));
   return {
     bias: totalBias,
     adjusted,
+    confCap: CONF_CAP,
     consensus,
     agree,
     confidenceBoost,

@@ -1,17 +1,25 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { markModelRunning, markModelSuccess, markModelError, markModelIdle } from './modelRegistry.js';
 
-const ML_DIR = path.resolve(import.meta.dirname, '../../ml');
+const ROOT_DIR = path.resolve(import.meta.dirname, '../..');
+const ROOT_VENV_PY = path.join(ROOT_DIR, '.venv/bin/python3');
+const ML_DIR = path.join(ROOT_DIR, 'ml');
 const VENV_PY = path.join(ML_DIR, '.venv/bin/python3');
-// Host system python has numpy/torch; project venv is often empty.
-const PYTHON = process.env.ZINGER_ML_PYTHON
-  || (fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : null)
+const PYTHON = (process.env.ZINGER_ML_PYTHON && fs.existsSync(process.env.ZINGER_ML_PYTHON) ? process.env.ZINGER_ML_PYTHON : null)
+  || (fs.existsSync(ROOT_VENV_PY) ? ROOT_VENV_PY : null)
   || (fs.existsSync(VENV_PY) ? VENV_PY : null)
+  || (fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : null)
   || 'python3';
 const ML_TIMEOUT_MS = 55000;
 
+function modelId(symbol, timeframe, horizon) {
+  return `${symbol.toLowerCase()}-${timeframe}-h${horizon}`;
+}
+
 function callQuickML(symbol, timeframe, horizon) {
+  const id = modelId(symbol, timeframe, horizon);
   const code = `
 import sys, json
 sys.path.insert(0, ${JSON.stringify(ML_DIR)})
@@ -20,15 +28,24 @@ result = quick_ml_signal(${JSON.stringify(symbol)}, ${JSON.stringify(timeframe)}
 print(json.dumps(result))
   `;
 
+  markModelRunning(id);
+
   return new Promise((resolve) => {
     let settled = false;
     const done = (value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (value.error) {
+        markModelError(id, value.error);
+      } else {
+        value._duration = Date.now() - t0;
+        markModelSuccess(id, value);
+      }
       resolve(value);
     };
 
+    const t0 = Date.now();
     const proc = spawn(PYTHON, ['-c', code], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
@@ -93,37 +110,59 @@ function normalizePoint(label, minutes, raw) {
   };
 }
 
-/** 30s–3m+ ladder: 5m h1 (~5m), 5m h3 (~15m), 1h h1 confirm — sequential to avoid GPU/CPU stampede */
-export async function getMLTrace(symbol = 'BTC') {
+/** Ladder keyed by Polymarket window duration */
+export async function getMLTrace(symbol = 'BTC', marketDuration = '5m') {
+  const dur = String(marketDuration || '5m').toLowerCase();
+  const ultra = await callQuickML(symbol, '1m', 1).catch(() => ({ error: '1m fail' }));
   const near = await callQuickML(symbol, '5m', 1);
   const mid = await callQuickML(symbol, '5m', 3);
-  const confirm = await callQuickML(symbol, '1h', 1);
+  // Longer books activate longer horizons
+  const long = (dur === '30m' || dur === '1h' || dur === '60m')
+    ? await callQuickML(symbol, '1h', 1).catch(() => null)
+    : null;
+  const xl = dur === '1h' || dur === '60m'
+    ? await callQuickML(symbol, '1h', 4).catch(() => null)
+    : null;
 
   const priceTrace = [
+    normalizePoint('1m', horizonMinutes('1m', 1), ultra?.error ? null : ultra),
     normalizePoint('5m', horizonMinutes('5m', 1), near),
     normalizePoint('15m', horizonMinutes('5m', 3), mid),
-    normalizePoint('1h', horizonMinutes('1h', 1), confirm),
+    long ? normalizePoint('1h', horizonMinutes('1h', 1), long) : null,
+    xl ? normalizePoint('4h', horizonMinutes('1h', 4), xl) : null,
   ].filter(Boolean);
 
-  const directional = priceTrace.filter((p) => p.direction !== 'neutral');
-  const up = directional.filter((p) => p.direction === 'up').length;
-  const down = directional.filter((p) => p.direction === 'down').length;
-  const direction = directional.length === 0 ? 0 : up === down ? 0 : up > down ? 1 : -1;
-  const confidence = priceTrace.length
-    ? priceTrace.reduce((s, p) => s + p.confidence, 0) / priceTrace.length
-    : 0;
-  const expectedReturn = directional.length
-    ? directional.reduce((s, p) => s + p.expectedReturn, 0) / directional.length
-    : 0;
+  // Weighted vote — nearer horizons count more; long books weight 1h higher
+  let upW = 0;
+  let downW = 0;
+  let confAcc = 0;
+  let confW = 0;
+  let retAcc = 0;
+  for (const p of priceTrace) {
+    let w = 1 / Math.max(1, (p.minutes || 5) / 5);
+    if ((dur === '30m' || dur === '1h') && (p.timeframe === '1h' || p.timeframe === '4h')) {
+      w *= 1.6;
+    }
+    if (p.direction === 'up') upW += w * (p.confidence || 0.5);
+    else if (p.direction === 'down') downW += w * (p.confidence || 0.5);
+    confAcc += (p.confidence || 0) * w;
+    confW += w;
+    retAcc += (p.expectedReturn || 0) * w;
+  }
+  const direction = upW === downW ? 0 : upW > downW ? 1 : -1;
+  const confidence = confW ? confAcc / confW : 0;
+  const expectedReturn = confW ? retAcc / confW : 0;
 
   return {
     direction,
     confidence,
     expected_return: expectedReturn,
     priceTrace,
+    marketDuration: dur,
     timestamp: Date.now(),
+    shortLadder: dur === '5m' || dur === '15m',
     error: priceTrace.length === 0
-      ? (near?.error || mid?.error || confirm?.error || 'no trace')
+      ? (ultra?.error || near?.error || mid?.error || 'no trace')
       : undefined,
   };
 }
@@ -142,11 +181,62 @@ export async function getMLSignalForBoth(timeframe = '1h', horizon = 1) {
   return { btc, eth };
 }
 
-export async function getMLTraceForBoth() {
-  // sequential assets — each runs 3 model passes
-  const btc = await getMLTrace('BTC');
-  const eth = await getMLTrace('ETH');
+export async function getMLTraceForBoth(marketDuration = '5m') {
+  // sequential assets — each runs model ladder for this book duration
+  const btc = await getMLTrace('BTC', marketDuration);
+  const eth = await getMLTrace('ETH', marketDuration);
   return { btc, eth };
+}
+
+/** Call the RL fuser for ensemble-aware signal fusion */
+export async function getRLSignal(symbol = 'BTC') {
+  const asset = symbol.toUpperCase() === 'BTC' ? 'BTC/USDT' : 'ETH/USDT';
+  const code = `
+import sys, json
+sys.path.insert(0, ${JSON.stringify(ML_DIR)})
+from rl_fuser_infer import run_inference
+result = run_inference(${JSON.stringify(asset)})
+print(json.dumps(result))
+  `;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+
+    const proc = spawn(PYTHON, ['-c', code], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      cwd: ML_DIR,
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+
+    const timer = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch {}
+      done({ rl_direction: 0, rl_label: 'NEUTRAL', error: 'timeout' });
+    }, 30000);
+
+    proc.on('error', (err) => done({ rl_direction: 0, rl_label: 'NEUTRAL', error: err.message }));
+    proc.on('close', (code) => {
+      if (code !== 0 || !stdout.trim()) {
+        done({ rl_direction: 0, rl_label: 'NEUTRAL', error: (stderr || 'no output').slice(0, 240) });
+        return;
+      }
+      try {
+        const lines = stdout.trim().split('\n').filter(Boolean);
+        done(JSON.parse(lines[lines.length - 1]));
+      } catch {
+        done({ rl_direction: 0, rl_label: 'NEUTRAL', error: 'parse error' });
+      }
+    });
+  });
 }
 
 export function getMlPythonPath() {

@@ -1,11 +1,20 @@
 #!/usr/bin/env node
+/**
+ * Legacy Robinhood-chain monitor (not part of Polymarket Core).
+ * Prefer `npm start` + Core dashboard for Polymarket ops.
+ */
 import { refreshAllTokens } from './src/lib/monitor.js';
 import { createPublicClient, http, formatEther } from 'viem';
 import { robinhood } from 'viem/chains';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const DATA_DIR = '/home/david/Zinger/data';
-const SESSIONS_FILE = DATA_DIR + '/sessions.json';
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = process.env.ZINGER_DATA_DIR
+  ? path.resolve(process.env.ZINGER_DATA_DIR)
+  : path.join(ROOT, 'data');
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 
 function loadSessions() {
   try { return JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')); }
@@ -19,7 +28,7 @@ async function main() {
   });
 
   const ethUsd = 1913.36;
-  const wallet = JSON.parse(fs.readFileSync(DATA_DIR + '/wallet.json', 'utf-8'));
+  const wallet = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'wallet.json'), 'utf-8'));
   const ethBal = Number(formatEther(await client.getBalance({ address: wallet.address })));
 
   const sessions = loadSessions();
@@ -50,7 +59,6 @@ async function main() {
   console.log('');
   console.log('Portfolio: ' + (totalVal + ethBal).toFixed(6) + ' ETH ($' + ((totalVal + ethBal) * ethUsd).toFixed(2) + ')');
 
-  // Check for +50% signals
   const tpSignals = active.filter(t => (t.roi || 0) >= 50);
   if (tpSignals.length > 0) {
     console.log('');

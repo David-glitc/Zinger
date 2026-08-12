@@ -13,6 +13,7 @@ import {
   loadAutoSellConfig, saveAutoSellConfig,
   calculatePnl, refreshAllTokens, formatPnl,
 } from './lib/monitor.js';
+import { loadFileOrStore, saveFileOrStore } from './polymarket/sqliteStore.js';
 
 dotenv.config();
 
@@ -22,14 +23,13 @@ const DATA_DIR = path.join(ROOT, 'data');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 
 function loadSessions() {
-  try { return JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8')); }
-  catch { return []; }
+  return loadFileOrStore(SESSIONS_FILE, []);
 }
 
 function saveSession(session) {
   const sessions = loadSessions();
   sessions.push({ id: Date.now().toString(36), ...session, timestamp: new Date().toISOString() });
-  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2));
+  saveFileOrStore(SESSIONS_FILE, sessions);
 }
 
 const wallet = getWallet();

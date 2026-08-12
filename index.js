@@ -16,7 +16,7 @@ process.on('unhandledRejection', (err) => {
   console.error('Unhandled:', err?.message || err);
 });
 
-const app = createApp();
+const app = await createApp();
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  🚀 Zinger Launcher live`);
