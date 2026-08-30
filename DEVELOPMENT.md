@@ -885,3 +885,95 @@ profiles were reachable in code and unreachable in practice.
 - Profile *knob* optimisation still unclaimed: the overlays carry July paper-sim
   tuning. The regime detector is now sound, so re-measuring those knobs is the
   natural next step.
+
+## 2026-08-30 12:47 CEST — Regime follow-through: scheduling, arb gate review, harness limits, upstream PR, live proposal
+
+Worked the five follow-ups from the 12:19 entry in order.
+
+### 1. Scheduled refresh (done)
+- New `ml/regime_refresh.py`: refreshes the OHLCV cache then re-emits the signal.
+  Deliberately **not** `data.fetch_all(force_refetch=True)` — that anchors `since`
+  five years back and caps at the 1000-row exchange limit, so it returns the
+  *oldest* 1000 candles. Ran it that way once and it replaced the current cache
+  with 2021 data; the script now anchors `since` to now-minus-N-bars and pages
+  forward. Cache re-fetched and verified current (1h/5m/1m for BTC+ETH, and the
+  1m series are fresher than they had been since Jul 22).
+- Installed `17 */2 * * *`, verified under `env -i` since cron has no fnm node on
+  PATH. Every 2h holds the reading inside the 6h gate through a missed run or two.
+- Fixed the disabled keeper cron: it still invoked `node index.js`, which stopped
+  existing after the TS migration. Now `tsx index.ts` with PATH set. **Left disabled.**
+- Crontab backed up to `~/crontab.backup.20260830-122506`; the three unrelated
+  entries (vps guard, chessonchain ×2) verified intact.
+
+### 2. What `minArbGap` actually gates (reviewed, unchanged)
+`arbEngine.ts` runs two gates in order:
+1. **fee gate (mandatory)** — `gap > arbBreakEvenGap(upAsk, downAsk) + arbMinMarginPct`
+2. **`minArbGap` (operator floor)** — `gap >= minArbGap`, and it runs *after*, so it
+   can only ever reject a trade the fee gate already cleared. It can never admit
+   an unprofitable one.
+
+The fee gate is price-dependent, requiring 1.17%–4.00% depending on book shape.
+Measured crossover: `minArbGap: 0.012` is the binding constraint **only when the
+cheap leg is below ~0.05** (favorite above ~0.95); at `0.015` it binds below ~0.07.
+In every other book shape it is inert. So the leftover 0.012 costs only the
+deepest-favorite arbs — a real trading question, but a narrow one.
+
+### 3. Profile knob re-measurement — NOT possible with current tooling
+Two genuine harness bugs fixed in `scripts/paper-test.ts`:
+- It broke out of the asset/duration/window loops at a **hardcoded 60 trades**.
+  BTC 5m is iterated first, so every run stopped inside it — ETH and the
+  15m/30m/1h durations were never reached. A "sweep" compared variants on one
+  asset and one duration. Same span now gives 570 windows instead of 60.
+- Candle depth 260/80 → the 1000-row Binance cap, taking the evaluable span from
+  ~3h to ~16h.
+
+But the harness still **cannot observe any knob the profiles set**, measured over
+570 trades:
+- `entryPrice` spans only **0.512–0.550** (median 0.530) → the price bands
+  (0.40–0.72, 0.43–0.60, 0.42–0.70) can never bind
+- `confidence` never drops below **0.620** → `minConfidence` 0.42–0.55 rejects nothing
+- **all 570 exits are `settle_win`/`settle_loss`** → no TP, SL, trailing or partial
+  exit ever fires, so `tpPctLow/tpPctHigh/slPct/trail*` are inert
+- sizing reports `confidence_scaling` on all 570 → the Kelly path never engages,
+  so `kellyFraction` is inert
+
+So profile-knob optimisation remains **unclaimed**, and the July overlay values
+should not be treated as measured. Making this harness fit for the job needs
+realistic intra-window entry-price paths and exits that actually fire — separate work.
+Also noted: `fetchFunding` is awaited inside the window loop, one network call per
+window, which is why a 570-window run takes ~2.5 min.
+
+### 4. Contributed upstream
+`David-glitc/zinger-core` PR #4 — `feat/jump-model-regime`. Ports the whole regime
+layer (4 `ml/regime_*.py`, `regimeSignal.ts`, `alphaFusion.ts`, the governor/kelly/
+signal/scan/bot wiring, 9 reachability tests, the paper-test harness) with both
+model fixes. Core verified: typecheck clean, 23 files / 252 tests, 4 perf tests.
+PR states the harness caveat explicitly so the knob values are not assumed measured.
+
+### 5. Live activation — recommendation is NO, not yet
+Evidence against, from the system's own gate:
+- `evaluateEdgeGate` returns **`liveAllowed: false`**, reason
+  `expectancy -0.057 ≤ 0 — arb-only`.
+- Last 100 closed directional paper trades: **16 W / 73 L, 16% win rate against a
+  26.6% break-even**, expectancy −0.057/trade, Kelly −0.144, total −$4.12.
+  Full log: 194 trades, all paper, net −$2.98.
+- That record accumulated while the detector was **inverted** and the governor
+  **disabled**, so it does not describe the system as it now stands — but it is
+  also the only record there is, and it is negative.
+
+Mechanically, enabling live would not do what it looks like:
+- The edge gate blocks live *directional* trading regardless of `governorEnabled`.
+- So the governor would force `arb-only`; and because `live.clobArbEnabled` is
+  `false`, the `saveConfig` invariant guard (`forceArbOnly && !clobArbEnabled →
+  clobArbEnabled = true`) would flip live CLOB arb **on**. Net result of "enable the
+  live governor" is therefore "start trading live arb with real money", which is
+  not what it reads like on the tin.
+
+Proposed gate to clear before revisiting, in order:
+1. Let paper run with the repaired detector and the governor enabled, and confirm
+   all three profiles are actually being selected (`governor_state.json` history).
+2. Accumulate ≥40 directional paper closes *post-fix* and require expectancy > 0
+   and Kelly > 0 — the thresholds the edge gate already enforces.
+3. Build knob measurement into the harness before trusting the overlays.
+4. Only then decide `live.clobArbEnabled` explicitly and on its own merits, rather
+   than inheriting it from a guard.
