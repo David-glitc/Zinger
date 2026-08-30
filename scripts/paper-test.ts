@@ -28,12 +28,25 @@ const ENTRY_LOOKBACK = 61;
 await loadFusionContext();
 const fusion = globalThis.__zingerFusionCtx || {};
 
+// Binance caps a klines request at 1000. Pulling the cap rather than 260 takes
+// the evaluable window from ~3h to ~16h, which matters because a knob sweep over
+// 60 windows cannot separate a real edge from noise.
+const ONE_MIN_DEPTH = Number(process.env.ZINGER_PAPER_1M_DEPTH || 1000);
+const FIVE_MIN_DEPTH = Number(process.env.ZINGER_PAPER_5M_DEPTH || 1000);
+
+// The asset/duration/window loops previously broke at a hardcoded 60 trades.
+// Because BTC 5m is iterated first, every run stopped inside it: ETH and the
+// 15m/30m/1h durations were never reached, so a "sweep" compared variants on
+// one asset and one duration and called it a config. Configurable now, and high
+// enough by default that the span is the binding constraint rather than a cap.
+const MAX_TRADES = Number(process.env.ZINGER_PAPER_MAX_TRADES || 5000);
+
 const candleCache = {};
 async function mkCandles(symbol) {
   if (!candleCache[symbol]) {
     const [one, five] = await Promise.all([
-      fetchCandles(symbol, '1m', 260),
-      fetchCandles(symbol, '5m', 80),
+      fetchCandles(symbol, '1m', ONE_MIN_DEPTH),
+      fetchCandles(symbol, '5m', FIVE_MIN_DEPTH),
     ]);
     const toSec = (c) => ({ ...c, time: Math.floor(c.time / 1000) });
     candleCache[symbol] = {
@@ -228,11 +241,11 @@ const entryT = Math.min(ws + Math.round(windowSec * 0.35), t1 - 10);
         };
         trades.push(trade);
         dbg.traded++;
-        if (trades.length >= 60) break;
+        if (trades.length >= MAX_TRADES) break;
       }
-      if (trades.length >= 60) break;
+      if (trades.length >= MAX_TRADES) break;
     }
-    if (trades.length >= 60) break;
+    if (trades.length >= MAX_TRADES) break;
   }
 
   return { trades, cash, bankroll0, dbg };
