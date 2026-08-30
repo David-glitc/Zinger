@@ -1,12 +1,27 @@
 {
   "name": "zinger",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
+  "description": "Polymarket Zinger — paper/live bot, operator dashboard, and ML traces (TypeScript)",
   "scripts": {
-    "start": "node index.js",
-    "dashboard": "node src/dashboard.js",
-    "seed": "node scripts/seed.js"
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts",
+    "dashboard": "tsx src/dashboard.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.types.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
+    "seed": "tsx scripts/seed.ts",
+    "check-settlement": "tsx scripts/check-settlement.ts",
+    "dry-run": "tsx scripts/dry-run.ts",
+    "paper-test": "tsx scripts/paper-test.ts",
+    "build:frontend": "npm --prefix frontend run build",
+    "typecheck:frontend": "npm --prefix frontend run typecheck",
+    "ci": "npm run typecheck && npm test && npm run test:perf"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@polymarket/builder-relayer-client": "^0.0.10",
@@ -21,6 +36,17 @@
     "onnxruntime-node": "^1.27.0",
     "openai": "^4.94.0",
     "socks-proxy-agent": "^10.1.0",
-    "viem": "^2.55.1"
+    "tsx": "^4.20.5",
+    "viem": "^2.55.1",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/blessed": "^0.1.25",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "@types/node-telegram-bot-api": "^0.64.10",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.7"
   }
 }
