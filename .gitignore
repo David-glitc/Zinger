@@ -13,7 +13,7 @@ venv/
 deploy/*.env
 !deploy/*.env.example
 deploy/spaceship.env
-deploy/pilot.env
+deploy/traefik-zinger-xyz.yaml.bak
 
 # Runtime ledgers / wallets / live state (never publish)
 data/**
@@ -52,3 +52,4 @@ deno.lock
 *.local.js
 *.local.ts
 ZINGER_STRATEGY_NOTES.md
+apps/pilot/

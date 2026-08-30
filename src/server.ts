@@ -998,12 +998,8 @@ export async function createApp() {
   });
 
   // --- Static ---
-  const isPilotInstance = (process.env.ZINGER_INSTANCE || 'experiment') === 'pilot';
-  const PILOT_UI = path.join(ROOT, 'apps', 'pilot', 'public');
   const FRONTEND_DIST = path.join(ROOT, 'frontend', 'dist');
-  const STATIC_ROOT = isPilotInstance && fs.existsSync(path.join(PILOT_UI, 'index.html'))
-    ? PILOT_UI
-    : FRONTEND_DIST;
+  const STATIC_ROOT = FRONTEND_DIST;
 
   app.use('/assets', express.static(path.join(ROOT, 'assets')));
   app.use(express.static(STATIC_ROOT));

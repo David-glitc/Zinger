@@ -14,24 +14,12 @@ import { POLY, durationFromSlug } from '../polymarket/config.js';
 import { checkPusdBalance } from '../polymarket/swap.js';
 import { startDepositScanner, stopDepositScanner, getLastScannedBlock } from '../polymarket/deposits.js';
 import { placeOrder, placeMarketSell, syncClobBalance, getClobBalance } from '../polymarket/trade.js';
-import {
-  ensureAccount,
-  getAccount,
-  setMode,
-  deposit as ledgerDeposit,
-  withdraw as ledgerWithdraw,
-  saveRules,
-  startSession,
-  stopSession,
-  getRunningSession,
-  syncAccountCash,
-  getPlatformFeeRate,
-  confirmUsdcDeposit as ledgerConfirmUsdcDeposit,
-  loadStore as ledgerLoadStore,
-  normalizeAddress,
-} from './pilotLedger.js';
-import { sseLine } from '../lib/sse.js';
 import { getDefaultPaperBankroll } from '../polymarket/modeConfig.js';
+
+/** Pilot consumer ledger removed from public Core — see private zinger-pilot repo. */
+function getRunningSession() {
+  return null;
+}
 
 const predictionSseClients = new Set();
 const spotSseClients = new Set();
@@ -404,7 +392,6 @@ function updatePublicPaper(signals, markets, rawMarkets) {
       publicPaper.feesPaid = Math.round((publicPaper.feesPaid + openPack.fee) * 1e5) / 1e5;
       publicPaper.open[asset] = position;
       publicPaper.lastTradedSlug[asset] = signalMarket.slug;
-      if (runningAcct?.wallet) syncAccountCash(runningAcct.wallet, publicPaper.cash);
       if (runningAcct?.mode === 'live') {
         const rawMkt = rawMarkets?.find((m) => m.slug === signalMarket.slug) || signalMarket;
         executeLiveEntry(asset, rawMkt, signal, conf, premiumBudget, entry, tpPct, PILOT.slPct);
@@ -423,8 +410,6 @@ function updatePublicPaper(signals, markets, rawMarkets) {
   }
 
   const running = getRunningSession();
-  if (running?.wallet) syncAccountCash(running.wallet, publicPaper.cash);
-
   if (running?.mode === 'live') {
     syncClobBalance().catch(() => {});
   }
@@ -656,14 +641,6 @@ function buildPredictionResponse(polyState) {
     botPaper,
     publishedPaper: botPaper,
     dataAssurance,
-    pilot: {
-      paper,
-      bot: botPaper,
-      product: 'Zinger Pilot',
-      app: 'zinger.xyz',
-      custody: 'paper_simulated',
-      note: 'Pilot product surface lives on zinger.xyz — playground publishes the experiment bot paper book.',
-    },
     feed,
   };
 }
@@ -734,11 +711,9 @@ function summarizeBotPaper(polyState) {
     }));
 
   return {
-    source: process.env.ZINGER_INSTANCE === 'pilot' ? 'pilot_bot' : 'experiment_bot',
-    published: process.env.ZINGER_INSTANCE !== 'pilot',
-    note: process.env.ZINGER_INSTANCE === 'pilot'
-      ? 'Pilot instance book — not the playground published feed.'
-      : 'Published on Playground Signals via /api/v1/bot-paper.',
+    source: 'experiment_bot',
+    published: true,
+    note: 'Published on Playground Signals via /api/v1/bot-paper.',
     status: polyState?.running ? 'running' : 'stopped',
     running: !!polyState?.running,
     mode: cfg.mode || polyState?.mode || 'paper',
@@ -1142,279 +1117,6 @@ export function registerPublicAPI(app, getPolyState) {
       stream: snap,
       markets,
     });
-  });
-
-  app.get('/api/v1/pilot', (req, res) => {
-    const state = getPolyState({ lean: true });
-    const body = buildPredictionResponse(state);
-    const wallet = String(req.query?.address || '').toLowerCase();
-    const account = wallet && /^0x[a-f0-9]{40}$/.test(wallet) ? getAccount(wallet) : getRunningSession();
-    const paper = body.paper;
-    const accounting = {
-      equity: paper?.equity ?? account?.cash ?? 0,
-      cash: account?.cash ?? paper?.cash ?? 0,
-      realizedPnl: paper?.realizedPnl ?? 0,
-      unrealizedPnl: paper?.unrealizedPnl ?? 0,
-      clobFees: paper?.feesPaid ?? 0,
-      platformFees: account?.platformFeesPaid ?? 0,
-      winRate: paper?.winRate ?? null,
-      wins: paper?.wins ?? 0,
-      losses: paper?.losses ?? 0,
-      openCount: paper?.open?.length ?? 0,
-      depositedGross: account?.depositedGross ?? 0,
-      withdrawn: account?.withdrawn ?? 0,
-    };
-    const sessionLedgerCurrent = getSessionLedger(5).current;
-    res.set(corsHeaders()).json({
-      timestamp: body.timestamp,
-      paper,
-      botPaper: body.botPaper,
-      publishedPaper: body.botPaper,
-      feed: body.feed,
-      window: body.window,
-      priceToBeat: body.priceToBeat,
-      signals: body.signals,
-      account,
-      session: account?.session || { running: false },
-      botSession: state?.session || null,
-      sessionLedger: sessionLedgerCurrent
-        ? {
-            id: sessionLedgerCurrent.id,
-            mode: sessionLedgerCurrent.mode,
-            status: sessionLedgerCurrent.status,
-            sessionPnl: sessionLedgerCurrent.sessionPnl,
-            uptimeMs: sessionLedgerCurrent.uptimeMs,
-            reconcile: sessionLedgerCurrent.reconcile,
-            traces: (sessionLedgerCurrent.traces || []).slice(0, 25),
-          }
-        : null,
-      clobWs: (() => {
-        const s = getClobWsSnapshot();
-        return {
-          connected: s.connected,
-          subscribed: s.subscribed,
-          books: s.books,
-          lastMsgAgeMs: s.lastMsgAgeMs,
-        };
-      })(),
-      markets: (state?.markets || [])
-        .filter((m) => m.isCurrent)
-        .map((m) => ({
-          slug: m.slug,
-          symbol: m.symbol,
-          duration: m.duration || null,
-          prices: m.prices,
-          priceSource: m.priceSource,
-          priceToBeat: m.priceToBeat,
-          remaining: m.remaining,
-        })),
-      opens: (state?.positions || [])
-        .filter((p) => !p.closed)
-        .slice(0, 24)
-        .map((p) => ({
-          id: p.id,
-          symbol: p.symbol,
-          slug: p.slug,
-          duration: p.duration || null,
-          outcome: p.outcome,
-          mode: p.mode,
-          entryPrice: p.entryPrice,
-          mark: p.mark ?? p.currentPrice,
-          shares: p.shares,
-          size: p.sizeUsd ?? p.cost,
-          pnl: p.pnl,
-          gainPct: p.gainPct,
-          remaining: p.remaining,
-        })),
-      liveAccount: state?.liveAccount || getLiveAccount(12),
-      cashAudit: state?.cashAudit || null,
-      narrative: state?.narrative || null,
-      liveScoreCards: state?.liveScoreCards || [],
-      accountBook: state?.account
-        ? {
-            stats: state.account.stats,
-            curve: {
-              updatedAt: state.account.curve?.updatedAt,
-              points: (state.account.curve?.points || []).slice(-120),
-            },
-            snapshot: state.account.snapshot
-              ? { mime: state.account.snapshot.mime, dataUrl: state.account.snapshot.dataUrl }
-              : null,
-          }
-        : null,
-      accounting,
-      platformFeeRate: getPlatformFeeRate(),
-      liveTrading: {
-        botRunning: !!state?.running,
-        mode: state?.mode || state?.config?.mode || null,
-        liveReady: !!state?.readiness?.liveReady,
-        liveAllowed: !!state?.edgeGate?.liveAllowed,
-        writeEgress: process.env.CLOB_PROXY_URL ? 'proxied' : 'direct',
-        note: 'CLOB reads via WS/direct; live order writes use CLOB_PROXY_URL when set',
-      },
-      edgeGate: state?.edgeGate || null,
-      product: {
-        name: 'Zinger',
-        app: 'core',
-        custody: 'paper_simulated',
-      },
-    });
-  });
-
-  app.post('/api/v1/pilot/connect', (req, res) => {
-    const address = req.body?.address || req.query?.address;
-    const chainId = req.body?.chainId || req.query?.chainId || 137;
-    const ensured = ensureAccount({ address, chainId: Number(chainId) || 137 });
-    if (!ensured.ok) {
-      return res.set(corsHeaders()).status(400).json({ error: ensured.error });
-    }
-    const paper = attachPilotWallet({ address, chainId: Number(chainId) || 137 });
-    res.set(corsHeaders()).json({ ok: true, paper, account: ensured.account });
-  });
-
-  app.post('/api/v1/pilot/account', (req, res) => {
-    const address = req.body?.address;
-    const chainId = req.body?.chainId || 137;
-    const mode = req.body?.mode;
-    let result = ensureAccount({ address, chainId });
-    if (!result.ok) return res.set(corsHeaders()).status(400).json({ error: result.error });
-    if (mode === 'paper' || mode === 'live') {
-      result = setMode(address, mode);
-    }
-    res.set(corsHeaders()).json(result);
-  });
-
-  app.post('/api/v1/pilot/deposit', (req, res) => {
-    const address = req.body?.address;
-    const amount = Number(req.body?.amount ?? req.body?.bankroll);
-    const result = ledgerDeposit({ address, amount });
-    if (!result.ok) return res.set(corsHeaders()).status(400).json({ error: result.error });
-    const addr = String(address).toLowerCase();
-    attachPilotWallet({ address: addr, chainId: result.account.chainId });
-    if (publicPaper.wallet?.address === addr) {
-      publicPaper.cash = Math.round((Number(publicPaper.cash) + Number(result.net)) * 100) / 100;
-    } else {
-      publicPaper.cash = result.account.cash;
-      publicPaper.wallet = { address: addr, chainId: result.account.chainId, connectedAt: Date.now() };
-      if (!publicPaper.deployedAt) publicPaper.deployedAt = Date.now();
-      if (!publicPaper.initialBankroll) publicPaper.initialBankroll = result.net;
-    }
-    publicPaper.events.unshift({
-      id: `deposit_${Date.now()}`,
-      type: 'deposit',
-      message: `Deposit $${Number(result.gross).toFixed(2)} · platform fee $${Number(result.fee).toFixed(2)} · net $${Number(result.net).toFixed(2)}`,
-      timestamp: Date.now(),
-      fee: result.fee,
-    });
-    res.set(corsHeaders()).json({ ...result, paper: publicPaperSnapshot() });
-  });
-
-  app.get('/api/v1/pilot/deposit-info', async (req, res) => {
-    const wallet = getWallet();
-    const pusdBalance = await checkPusdBalance(wallet.polymarketDepositWallet).catch(() => 0n);
-    res.set(corsHeaders()).json({
-      receiveAddress: wallet.address,
-      depositWallet: wallet.polymarketDepositWallet || null,
-      depositWalletBalance: Number(pusdBalance) / 1_000_000,
-      usdcAddress: POLY.usdc,
-      pusdAddress: POLY.pUsd,
-      chainId: POLY.chainId,
-      network: 'Polygon Mainnet',
-      note: 'Send USDC (Polygon native) to the receive address. The bot swaps to pUSD and credits your account.',
-      scanActive: !!depositScannerCleanup,
-    });
-  });
-
-  app.post('/api/v1/pilot/deposit-usdc', async (req, res) => {
-    const address = req.body?.address;
-    const txHash = req.body?.txHash;
-    if (!address || !txHash) {
-      return res.set(corsHeaders()).status(400).json({ error: 'address and txHash required' });
-    }
-    const wallet = normalizeAddress(address);
-    if (!wallet) return res.set(corsHeaders()).status(400).json({ error: 'valid address required' });
-    if (!/^0x[a-f0-9]{64}$/i.test(txHash)) {
-      return res.set(corsHeaders()).status(400).json({ error: 'valid tx hash required' });
-    }
-    const result = await ledgerConfirmUsdcDeposit(wallet, txHash).catch(err => ({
-      ok: false, error: err.message?.slice(0, 300) || 'deposit check failed',
-    }));
-    res.set(corsHeaders()).json(result);
-  });
-
-  app.get('/api/v1/pilot/deposits', (req, res) => {
-    const address = req.query?.address;
-    const wallet = normalizeAddress(address);
-    if (!wallet) return res.set(corsHeaders()).json({ deposists: [] });
-    const store = ledgerLoadStore();
-    const acct = store.accounts[wallet];
-    const deposits = acct?.usdcDeposits || [];
-    res.set(corsHeaders()).json({ deposits });
-  });
-
-  app.post('/api/v1/pilot/withdraw', (req, res) => {
-    const address = req.body?.address;
-    const amount = Number(req.body?.amount);
-    const result = ledgerWithdraw({ address, amount });
-    if (!result.ok) return res.set(corsHeaders()).status(400).json({ error: result.error });
-    if (publicPaper.wallet?.address === String(address).toLowerCase()) {
-      publicPaper.cash = result.account.cash;
-    }
-    res.set(corsHeaders()).json({ ...result, paper: publicPaperSnapshot() });
-  });
-
-  app.post('/api/v1/pilot/rules', (req, res) => {
-    const address = req.body?.address;
-    const result = saveRules(address, req.body?.rules || req.body);
-    if (!result.ok) return res.set(corsHeaders()).status(400).json({ error: result.error });
-    res.set(corsHeaders()).json(result);
-  });
-
-  app.post('/api/v1/pilot/session/start', (req, res) => {
-    const address = req.body?.address;
-    const result = startSession(address);
-    if (!result.ok) return res.set(corsHeaders()).status(400).json({ error: result.error });
-    // Align paper book cash with account without wiping trade history if same wallet
-    const addr = String(address).toLowerCase();
-    if (publicPaper.wallet?.address !== addr || !(publicPaper.cash > 0)) {
-      resetPublicPaper({
-        bankroll: result.account.cash,
-        wallet: { address, chainId: result.account.chainId },
-      });
-    } else {
-      publicPaper.cash = result.account.cash;
-      publicPaper.wallet = { address: addr, chainId: result.account.chainId, connectedAt: Date.now() };
-    }
-    res.set(corsHeaders()).json({ ...result, paper: publicPaperSnapshot() });
-  });
-
-  app.post('/api/v1/pilot/session/stop', (req, res) => {
-    const address = req.body?.address;
-    const result = stopSession(address);
-    if (!result.ok) return res.set(corsHeaders()).status(400).json({ error: result.error });
-    res.set(corsHeaders()).json({ ...result, paper: publicPaperSnapshot() });
-  });
-
-  app.post('/api/v1/pilot/deploy', (req, res) => {
-    // Back-compat: treat as deposit + account ensure
-    const bankroll = Number(req.body?.bankroll ?? 1000);
-    const address = req.body?.address || null;
-    const chainId = req.body?.chainId || 137;
-    if (address) {
-      ensureAccount({ address, chainId });
-      const dep = ledgerDeposit({ address, amount: bankroll });
-      if (!dep.ok) return res.set(corsHeaders()).status(400).json({ error: dep.error });
-      const paper = resetPublicPaper({
-        bankroll: dep.account.cash,
-        wallet: { address, chainId },
-      });
-      return res.set(corsHeaders()).json({ ok: true, paper, account: dep.account, fee: dep.fee, net: dep.net });
-    }
-    if (!(bankroll >= 100 && bankroll <= 10000)) {
-      return res.set(corsHeaders()).status(400).json({ error: 'bankroll must be 100–10000' });
-    }
-    const paper = resetPublicPaper({ bankroll, wallet: null });
-    res.set(corsHeaders()).json({ ok: true, paper });
   });
 
   app.get('/api/v1/markets', (req, res) => {

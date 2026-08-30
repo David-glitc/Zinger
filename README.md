@@ -1,22 +1,34 @@
-# Zinger Core
+# Zinger
 
-Polymarket BTC/ETH up-or-down trading bot with paper and live modes, operator dashboard, optional Telegram command center, and ML helpers.
+Polymarket BTC/ETH up-or-down trading bot with paper and live modes, operator dashboard, optional Telegram command center, ML regime detection, and a public signal API.
 
-> This public tree is **Core only**. Runtime ledgers, wallets, and production deploy secrets are not included.
+> **Public Core repository.** Runtime ledgers, wallets, and production secrets are not included. The [Pilot consumer app](PILOT.md) is maintained separately in a private repo.
 
 ## Features
 
 - Paper and live Polymarket CLOB trading (5m / 15m / 30m / 1h windows when listed)
-- Signal + optional ML overlays, Kelly/certainty sizing, TP/SL / hold-to-settle plans
-- Regime governor and LLM optimizer hooks (OpenRouter)
-- Operator UI (`frontend/`) served from Core at `/poly`
+- Signal + ML overlays, Kelly/certainty sizing, TP/SL / hold-to-settle plans
+- Three-regime governor (`trend-ride`, `scalp`, `arb-only`) with statistical jump-model overlay
+- Fee-aware atomic arbitrage engine
+- Operator UI (`frontend/`) at `/poly`
+- Public predictions API + optional `public-api/` playground package
 - Optional Telegram control surface
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| [Engineering Handbook (PDF)](docs/handbook/zinger-handbook.pdf) | Full technical spec |
+| [ENGINEERING_HANDBOOK.md](docs/ENGINEERING_HANDBOOK.md) | Markdown source (detailed) |
+| [architecture.md](docs/architecture.md) | High-level map |
+| [THESIS.md](THESIS.md) | ML research narrative |
+| [PILOT.md](PILOT.md) | Private consumer app (not in this repo) |
 
 ## Quick start (paper)
 
 ```bash
-git clone <repo-url> zinger-core
-cd zinger-core
+git clone https://github.com/David-glitc/Zinger.git
+cd Zinger
 npm install
 cd frontend && npm install && npm run build && cd ..
 cp .env.example .env
@@ -43,19 +55,28 @@ Live trading requires a wallet file created by Core under `data/wallet.json` (gi
 ## Layout
 
 ```
-index.js          # process entry
+index.ts          # process entry
 src/              # Express API, Polymarket bot, AI, Telegram
 frontend/         # Vite operator dashboard
-ml/               # Training / export scripts (no weights in-git)
-docker/           # Optional container samples
-data/             # Runtime only (gitignored; .gitkeep placeholder)
+ml/               # Training / regime scripts (no weights in-git)
+public-api/       # Optional trimmed signal server
+tests/            # vitest unit + perf suites
+docs/handbook/    # LaTeX handbook → PDF
+```
+
+## Checks
+
+```bash
+npm run typecheck
+npm test
+npm run test:perf
+npm run ci
 ```
 
 ## Docker
 
 ```bash
 cp .env.example .env
-# fill OPENROUTER_API_KEY / AUTH_PASSWORD as needed
 docker compose -f docker/docker-compose.yml up --build
 ```
 

@@ -1,0 +1,335 @@
+\documentclass[11pt,a4paper]{report}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  pdftitle={Zinger Engineering Handbook},
+  pdfauthor={Zinger Project}
+}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible
+}
+
+\title{\textbf{Zinger Engineering Handbook}\\\large Technical specification for the public Core repository}
+\author{Zinger Project --- v1.1.0}
+\date{August 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\clearpage
+
+\chapter{Introduction}
+
+\textbf{Zinger} is a Polymarket trading system for BTC and ETH up/down prediction markets.
+It runs in \textbf{paper} or \textbf{live} mode, exposes an operator dashboard at \texttt{/poly},
+optional Telegram control, a public signal API, and Python ML helpers for regime detection.
+
+\subsection{Repository scope}
+
+This public tree ships \textbf{Core only}:
+\begin{itemize}[noitemsep]
+  \item Express API and Polymarket bot (\texttt{src/})
+  \item Operator dashboard (\texttt{frontend/})
+  \item ML training and regime scripts (\texttt{ml/})
+  \item Public signal playground package (\texttt{public-api/})
+  \item Unit and performance tests (\texttt{tests/})
+\end{itemize}
+
+The \textbf{Pilot consumer app} (wallet product) is maintained in the private
+\texttt{zinger-pilot} repository and is intentionally excluded from this tree.
+
+\subsection{Runtime requirements}
+
+\begin{itemize}[noitemsep]
+  \item Node.js $\geq$ 20 (22 recommended)
+  \item TypeScript executed via \texttt{tsx}
+  \item Polygon PoS for live CTF settlement
+  \item Optional Python 3.12 + \texttt{ml/.venv} for regime emission
+\end{itemize}
+
+\chapter{Architecture}
+
+\section{Process topology}
+
+\begin{verbatim}
+index.ts  -->  src/server.ts
+                 |-- src/polymarket/*   (bot, scan, engines, store)
+                 |-- src/ai/*           (governor, optimizer)
+                 |-- src/telegram/*
+                 |-- frontend/dist      (operator UI at /poly)
+                 |-- public-api         (optional playground)
+\end{verbatim}
+
+\section{Scan pipeline (four phases)}
+
+The bot no longer runs a monolithic loop. Each scan pass is:
+
+\begin{enumerate}
+  \item \textbf{Cycle} --- window timing, market discovery, eligibility
+  \item \textbf{Inputs} --- signals, fusion context, book depth
+  \item \textbf{Exits} --- TP/SL, trailing, partials, settlement
+  \item \textbf{Orchestrator} --- directional entries, arb packages, telemetry
+\end{enumerate}
+
+Modules live under \texttt{src/polymarket/scan/}.
+
+\section{Persistence}
+
+State is stored in SQLite WAL mode (\texttt{data/zinger.db}, table \texttt{docs}):
+configuration, trades, governor state, ML signals, and equity curves.
+Runtime \texttt{data/} is gitignored; use \texttt{ZINGER\_DATA\_DIR} in tests.
+
+\chapter{Three strategy regimes}
+
+The AI governor (\texttt{src/ai/governor.ts}) selects one of three profiles:
+
+\begin{longtable}{@{}llp{7.5cm}@{}}
+\toprule
+Profile & When & Behaviour \\
+\midrule
+\endhead
+\texttt{trend-ride} & ADX trending, ATR moderate & Wider TP, ride winners, mid-band entries \\
+\texttt{scalp} & ADX chop / range & Tighter TP/SL, faster exits \\
+\texttt{arb-only} & High ATR or ML high-vol & Directional muted; CLOB arb only \\
+\bottomrule
+\end{longtable}
+
+\subsection{Governor forbidden keys}
+
+The governor may turn arb \emph{on or off} but must never write arb \emph{thresholds}:
+\texttt{minArbGap}, \texttt{arbMinMarginPct}, \texttt{maxArbPackages},
+\texttt{arbBankrollFrac}, \texttt{arbMaxUsd}. Those are stripped inside
+\texttt{applyProfile}. The fee-aware gate in \texttt{arbEngine.ts} owns economics.
+
+\subsection{Dual-layer regime detection}
+
+\begin{enumerate}
+  \item \textbf{Heuristic} --- ADX + ATR on BTC/ETH spot $\rightarrow$ trend-ride / scalp / arb-only
+  \item \textbf{ML overlay} --- statistical jump model (\texttt{ml/regime\_emit.py})
+        $\rightarrow$ high-vol forces arb-only; calm defers to ADX (keeps \texttt{scalp} reachable)
+\end{enumerate}
+
+Shared reader: \texttt{src/polymarket/regimeSignal.ts} (6h freshness gate).
+
+\chapter{Arbitrage engine}
+
+\section{Gap definition}
+
+For complementary UP/DOWN asks:
+\[
+\text{Combined} = \text{Ask}_{\text{UP}} + \text{Ask}_{\text{DOWN}}, \quad
+\text{Gap} = 1 - \text{Combined}
+\]
+
+\section{Two-stage gate (\texttt{arbEngine.ts})}
+
+\begin{enumerate}
+  \item \textbf{Fee break-even (mandatory):}
+  $\text{Gap} > \text{arbBreakEvenGap}(\text{up},\text{down}) + \text{arbMinMarginPct}$
+  \item \textbf{Operator floor:} $\text{Gap} \geq \text{minArbGap}$ (runs after; cannot admit unprofitable trades)
+\end{enumerate}
+
+Packages are atomic: both legs fill or the engine unwinds. Orphan legs are valued at
+market mid, not a fixed \$0.50 placeholder.
+
+\chapter{Directional trading and sizing}
+
+\section{Kelly criterion}
+
+Fractional Kelly in \texttt{kelly.ts}:
+\[
+f^* = \frac{bp - q}{b}, \quad
+\text{size} = \text{bankroll} \cdot \min(\text{maxPositionPct}, f^* \cdot \text{kellyFraction})
+\]
+
+Optional vol tilt: \texttt{realizedVol / calmBaseline} from the jump model shrinks size in high-vol states.
+
+\section{Exit matrix}
+
+\begin{longtable}{@{}lll@{}}
+\toprule
+Exit & Trigger & Role \\
+\midrule
+\endhead
+FAST SL & price $\leq$ entry$\cdot$(1$-$slPct) & Hard stop \\
+ADAPTIVE SL & underwater + confidence fade & Tighten stop \\
+PARTIAL TP & fraction of TP target hit & De-risk into momentum \\
+TRAILING STOP & retrace from high water mark & Lock trend gains \\
+DISASTER SL & underdog deep drawdown & Hold-to-settle breathing room \\
+SETTLE & window end & Binary resolution \\
+\bottomrule
+\end{longtable}
+
+\chapter{ML regime layer}
+
+\section{Statistical jump model}
+
+\texttt{ml/regime\_jump.py} fits a two-state penalized clustering model on downside deviation
+and Sortino features (z-scored). Penalty default \texttt{1.0} (override:
+\texttt{ZINGER\_REGIME\_PENALTY}).
+
+\section{Emission pipeline}
+
+\begin{verbatim}
+ml/regime_refresh.py   # cron: refresh OHLCV + emit
+ml/regime_emit.py      # writes regime_signal.json to SQLite store
+regimeSignal.ts        # single consumer for governor + alpha fusion
+\end{verbatim}
+
+\section{Alpha fusion}
+
+\texttt{src/polymarket/alphaFusion.ts} blends signal, book imbalance, and regime context
+before directional scoring. Book depth is captured in \texttt{bot.ts} into
+\texttt{booksForFusion}.
+
+\chapter{Risk governance}
+
+\section{Authority hierarchy}
+
+\begin{enumerate}
+  \item \textbf{Operator} --- \texttt{forceArbOnly}, live edge gate overrides
+  \item \textbf{Guardrails} --- drawdown breaker, \texttt{arbOnlyUntilEdge}
+  \item \textbf{Automation} --- governor profiles, LLM optimizer (bounded)
+\end{enumerate}
+
+\section{Drawdown circuit breaker}
+
+When equity falls $\geq$ \texttt{governorDrawdownPct} off peak, directional trading locks
+and the engine favours arb-only until recovery or operator reset.
+
+\section{Live edge gate}
+
+\texttt{evaluateEdgeGate} requires sufficient directional paper closes with positive
+expectancy and Kelly before live directional is allowed. Arb can still be enabled separately.
+
+\chapter{Public HTTP API}
+
+Core exposes (via \texttt{publicPredictions.ts}):
+
+\begin{longtable}{@{}lp{9cm}@{}}
+\toprule
+Endpoint & Purpose \\
+\midrule
+\endhead
+\texttt{GET /api/v1/predictions} & Full signal + market snapshot \\
+\texttt{GET /api/v1/predictions/stream} & SSE prediction stream \\
+\texttt{GET /api/v1/paper} & Published bot paper book \\
+\texttt{GET /api/v1/bot-paper} & Same book (playground default) \\
+\texttt{GET /api/v1/markets} & Active Polymarket windows \\
+\texttt{GET /api/v1/market/:slug} & Single market + book \\
+\texttt{GET /api/v1/charts/spot} & BTC/ETH spot history \\
+\texttt{GET /api/v1/health} & API + bot health \\
+\bottomrule
+\end{longtable}
+
+Pilot wallet routes (\texttt{/api/v1/pilot/*}) are \textbf{not} part of public Core.
+
+The standalone \texttt{public-api/} package mirrors a trimmed signal surface for
+embedding and documentation.
+
+\chapter{Configuration}
+
+\section{Environment variables}
+
+\begin{longtable}{@{}lp{8cm}@{}}
+\toprule
+Variable & Purpose \\
+\midrule
+\endhead
+\texttt{AUTH\_PASSWORD} & Dashboard login \\
+\texttt{OPENROUTER\_API\_KEY} & Optional LLM governor \\
+\texttt{TELEGRAM\_BOT\_TOKEN} & Optional Telegram bot \\
+\texttt{CLOB\_PROXY\_URL} & Egress for live order writes \\
+\texttt{ZINGER\_DATA\_DIR} & Runtime data directory \\
+\texttt{ZINGER\_REGIME\_PENALTY} & Jump-model penalty (default 1.0) \\
+\bottomrule
+\end{longtable}
+
+\section{Mode profiles}
+
+\texttt{poly\_config.json} stores per-mode (\texttt{paper}, \texttt{live}) profiles:
+bankroll, confidence bands, arb flags, governor enablement, Kelly fraction, etc.
+
+\chapter{Operations}
+
+\section{Quick start}
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/David-glitc/Zinger.git
+cd Zinger && npm install
+cd frontend && npm install && npm run build && cd ..
+cp .env.example .env
+npm start
+# http://localhost:3000/poly
+\end{lstlisting}
+
+\section{Checks}
+
+\begin{lstlisting}[language=bash]
+npm run typecheck
+npm test
+npm run test:perf
+npm run ci
+\end{lstlisting}
+
+\section{Regime refresh (production)}
+
+Schedule \texttt{ml/regime\_refresh.py} every 2h so the ML overlay stays inside the
+6h freshness gate. Governor falls back to ADX/ATR if stale.
+
+\chapter{Testing}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{252 unit tests} across 23 files (invariants, arb, governor, regime reachability)
+  \item \textbf{4 perf tests} --- hot-path budgets for fees, parsers, Kelly, auth
+  \item Tests isolate data via \texttt{ZINGER\_DATA\_DIR} per worker
+\end{itemize}
+
+Key suite: \texttt{tests/unit/regimeReachability.test.ts} pins all three governor profiles reachable.
+
+\chapter{Related repositories}
+
+\begin{longtable}{@{}ll@{}}
+\toprule
+Repository & Role \\
+\midrule
+\endhead
+\texttt{David-glitc/Zinger} & This public Core monorepo \\
+\texttt{David-glitc/zinger-core} & Apache-2.0 extraction (sync target) \\
+\texttt{David-glitc/zinger-pilot} & Private consumer wallet app \\
+\bottomrule
+\end{longtable}
+
+\appendix
+\chapter{License and security}
+
+Public Core is MIT-licensed. Report vulnerabilities per \texttt{SECURITY.md}.
+Never commit \texttt{.env}, wallets, or \texttt{data/} contents.
+
+\chapter{Building this handbook}
+
+\begin{lstlisting}[language=bash]
+cd docs/handbook
+tectonic zinger-handbook.tex
+# Output: zinger-handbook.pdf
+\end{lstlisting}
+
+\end{document}
