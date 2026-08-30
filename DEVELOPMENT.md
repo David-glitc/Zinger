@@ -814,3 +814,74 @@ Audited all three profiles (`trend-ride`, `scalp`, `arb-only`) for reachability.
   gate) and now operator-owned, but it was never an operator's choice.
 - Not claimed: profile *optimisation*. The overlays carry the July paper-sim
   tuning; nothing was re-measured in this pass.
+
+## 2026-08-30 12:19 CEST — Three regimes: jump model repaired, penalty tuned, governor activated in paper
+
+Follow-on from the 10:45 audit, which had left reachability pinned in code but the
+regimes dormant and profile optimisation explicitly unclaimed.
+
+### The jump model was inverted — the ML label was noise
+Two compounding faults in `ml/regime_jump.py`:
+1. **`_assign` maximized a distance cost.** Its docstring said it minimized
+   per-point cost, but it accumulated `dp_cost` (squared distance to each center)
+   under `argmax`. Every point was assigned to the center it was *furthest* from.
+   Measured: the DP agreed with the furthest center 99.9% of the time on BTC 1h.
+2. **Features were unstandardized.** Downside deviation is ~1e-3, Sortino ~1e0,
+   so squared distance was effectively Sortino alone — while `high_vol_state` is
+   chosen by ordering on downside deviation, the dimension carrying no signal.
+   The two centers differed 0.7% on dd and ~20x on Sortino.
+
+Net effect: BTC 1h read `high-vol` **95.3%** of the time, with `realizedVol`
+*below* `calmBaseline`. Since high-vol forces `arb-only`, enabling the governor
+would have pinned the bot to arb and starved `trend-ride` and `scalp`. The
+profiles were reachable in code and unreachable in practice.
+
+### Fixes
+- `_assign` is a true minimization; a jump costs `penalty` instead of crediting it.
+- Features z-scored; scaler fitted once in `fit` and reused by `predict`.
+- Penalty `0.05` → `1.0` (`ZINGER_REGIME_PENALTY` overrides). Chosen as the knee of
+  a flips-vs-occupancy sweep over BTC/ETH on 1h and 5m: separation already maximal
+  and flip count plateaued, while larger values only skew occupancy.
+- `calmBaseline` is now the low-vol state's mean downside deviation, not the oldest
+  bars in the cache; `realizedVol` is the same statistic (the model's current dd).
+  kelly's vol tilt divides one by the other, so they had to be commensurate — before,
+  it compared a 12-bar half-life-weighted dd of raw returns against an arbitrary
+  historical anchor and systematically under-de-risked.
+- Emitted signal gains `penalty` and `ddHighVolState` for auditability.
+
+### After
+- high-vol carries **1.5–2.1x** the downside deviation of low-vol; nearest-center
+  agreement 98–100%; occupancy 0.39–0.56 (was 0.95).
+- Walk-forward backtest, BTC 1h: regime-gated hold beats buy-and-hold on Sharpe
+  (3.78 vs 3.64) and cuts vol 0.290 → 0.213, giving up CAGR — the intended de-risk.
+- Live reading: `high-vol`, `highVolFraction` 0.555, `flips` 15, rv 0.0089 vs calm
+  0.0062. kelly tilt resolves to `volScale` 0.80 instead of a meaningless ratio.
+- 1h (BTC+ETH) says high-vol, 5m says calm — a timeframe difference, not a conflict.
+
+### Activated
+- `governorEnabled: true` for **paper**, written through `saveConfig` so it is
+  attributed (`operator` / `regime-activation`, `false` → `true`). **Live left off.**
+- Verified the governor now runs instead of returning `{ skipped: 'disabled' }`.
+  On a real cycle it selected `arb-only` (ML overlay overriding a trend heuristic;
+  both reasons logged) and wrote only `clobArbEnabled`, `arbOnlyUntilEdge`,
+  `minConfidence`, `kellyFraction`, `certaintyMaxPct`, `adaptiveSl`,
+  `holdToSettleFavorites` — no arb thresholds, so the contributor's
+  `GOVERNOR_FORBIDDEN_KEYS` guard is confirmed holding at runtime.
+- Heuristic reachability re-confirmed end to end: ADX 34/ATR 0.20 → `trend-ride`,
+  ADX 14 → `scalp`, ATR 0.80 → `arb-only`.
+- Suite 23 files / 252 tests, typecheck clean.
+
+### Still outstanding — operator decisions
+- **Live governor is off** (`live.governorEnabled: false`), and `live.clobArbEnabled`
+  is also false, so `arb-only` would be a no-op there. Both are money decisions.
+- **Nothing refreshes the signal.** No cron or systemd timer runs the OHLCV cache
+  refresh or `ml/regime_emit.py`. The 6h freshness gate means the ML overlay goes
+  silently dormant a few hours after any manual run (safe, but only ADX/ATR drives).
+- **The disabled keeper cron is stale**: it still invokes `node index.js`, which no
+  longer exists after the TypeScript migration — it needs `tsx index.ts` before
+  being re-enabled.
+- `minArbGap: 0.012` still in both profiles, a leftover from when the governor could
+  write it. Only a floor beneath the fee-aware gate, but never an operator's choice.
+- Profile *knob* optimisation still unclaimed: the overlays carry July paper-sim
+  tuning. The regime detector is now sound, so re-measuring those knobs is the
+  natural next step.
