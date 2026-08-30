@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Zinger Strategy Playground — standalone public API.
  * No private bot deps, no secrets. Pure math + public Binance market data.

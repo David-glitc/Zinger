@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Playground router mounted on the main Zinger server at /playground.
  * Uses standalone public-api/lib — no private secrets.

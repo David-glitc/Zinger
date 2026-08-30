@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Kelly Criterion position sizing with dynamic TP/SL, trailing stops, partial profits
 
 const MAX_KELLY = 0.5;

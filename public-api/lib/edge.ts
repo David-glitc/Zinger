@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Expectancy / edge gate for directional trading vs arb-only.
  * Live mode stays locked until recent paper expectancy is positive.

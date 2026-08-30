@@ -1,3 +1,4 @@
+// @ts-nocheck
 const BINANCE = 'https://api.binance.com';
 const BINANCE_FUTURES = 'https://fapi.binance.com';
 

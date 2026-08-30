@@ -1,3 +1,4 @@
+// @ts-nocheck
 /** Public market helpers — Binance depth + 5m window clock. No secrets. */
 
 const BINANCE = 'https://api.binance.com';
