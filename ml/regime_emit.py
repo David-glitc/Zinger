@@ -35,15 +35,26 @@ def main():
     close = df["close"].values.astype(np.float64)
     r = np.zeros(len(close)); r[1:] = np.diff(close) / close[:-1]
 
-    mdl = StatisticalJumpModel(n_states=2, penalty=0.05, n_iter=30, seed=42)
+    # penalty=1.0 is the knee of the flips-vs-occupancy sweep across BTC/ETH on
+    # 1h and 5m: separation is already maximal (1.5-2.1x downside dev between
+    # states) and flip count has plateaued, while larger penalties only start
+    # skewing occupancy. The old 0.05 ran ~2x the flips for no extra separation.
+    penalty = float(os.environ.get("ZINGER_REGIME_PENALTY", 1.0))
+    mdl = StatisticalJumpModel(n_states=2, penalty=penalty, n_iter=30, seed=42)
     states = mdl.fit_predict(r)
     cur = int(states[-1])
     high_vol = cur == mdl.high_vol_state
 
-    # realized downside vol over last ~6h for the tilt guardrail
-    win = min(12, len(r))
-    rv = downside_deviation(r[-win:], half_life=win)
-    calm = downside_deviation(r[:win], half_life=win) if len(r) >= win else None
+    # kelly's vol tilt divides realizedVol by calmBaseline, so both have to be the
+    # same statistic or the ratio is meaningless. Both are now the model's own
+    # downside-deviation feature: `rv` is its current value, `calm` is its mean
+    # over the low-vol state. Previously rv was a 12-bar half-life-weighted dd of
+    # raw returns while calm came from the oldest bars in the cache — different
+    # windows, different weighting, and the quotient systematically under-de-risked.
+    dd_series = mdl.features_[:, 0]
+    rv = float(dd_series[-1])
+    low_mask = states == mdl.low_vol_state
+    calm = float(dd_series[low_mask].mean()) if low_mask.any() else None
 
     regime = "high-vol" if high_vol else "trend"
     out = {
@@ -54,8 +65,10 @@ def main():
         "highVol": high_vol,
         "flips": mdl.flips_,
         "highVolFraction": float((states == mdl.high_vol_state).mean()),
+        "penalty": penalty,
         "realizedVol": float(rv),
         "calmBaseline": None if calm is None else float(calm),
+        "ddHighVolState": float(dd_series[states == mdl.high_vol_state].mean()) if (states == mdl.high_vol_state).any() else None,
         "downsideDev": float(downside_deviation(r[-1:])),
         "lastPrice": float(close[-1]),
         "source": "statistical-jump-model",
