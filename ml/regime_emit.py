@@ -1,7 +1,12 @@
-# Zinger ML — Emit a live regime signal JSON consumed by the JS governor.
-# Fits the statistical jump model on the latest cached OHLCV and writes
-# data/regime_signal.json with the current regime label, idio-vol tilt, and
-# enough context for the governor to override its heuristic.
+# Zinger ML — Emit a live regime signal consumed by the JS governor.
+# Fits the statistical jump model on the latest cached OHLCV and writes the
+# current regime label, idio-vol tilt, and enough context for the governor to
+# override its heuristic.
+#
+# Written through the shared SQLite store (data/zinger.db, docs table) under the
+# key `regime_signal.json`, matching every other ML script and — crucially — the
+# path `loadFileOrStore` reads on the Node side. Writing a bare JSON file here
+# left the governor permanently blind on Node 22, where the store is sqlite.
 #
 # Usage: python3 ml/regime_emit.py [LINK/USDT|BTC/USDT|ETH/USDT] [1h|5m]
 
@@ -14,9 +19,9 @@ import numpy as np
 sys.path.insert(0, "ml")
 from data import load_cached
 from regime_jump import StatisticalJumpModel, downside_deviation
+from sqlite_store import store_save
 
-DATA_ROOT = os.environ.get("ZINGER_DATA_DIR", "data")
-OUT = os.path.join(DATA_ROOT, "regime_signal.json")
+STORE_KEY = "regime_signal.json"
 
 
 def main():
@@ -55,11 +60,9 @@ def main():
         "lastPrice": float(close[-1]),
         "source": "statistical-jump-model",
     }
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w") as f:
-        json.dump(out, f, indent=2)
+    store_save(STORE_KEY, out)
     print(json.dumps(out, indent=2))
-    print(f"\nwrote {OUT}")
+    print(f"\nwrote {STORE_KEY} to the shared store")
 
 
 if __name__ == "__main__":

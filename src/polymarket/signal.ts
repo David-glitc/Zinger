@@ -3,19 +3,18 @@ const BINANCE = 'https://api.binance.com';
 const BINANCE_FUTURES = 'https://fapi.binance.com';
 
 import { applyAlphaFusion } from './alphaFusion.js';
+import { loadRegimeSignal } from './regimeSignal.js';
 
 /**
- * Pull jump-model regime + idio-vol context from data/regime_signal.json so the
- * alpha fusion can de-risk during high-vol regimes. Called by the bot each scan.
+ * Pull jump-model regime + idio-vol context from the shared store (see
+ * `regimeSignal.ts`, the single owner of that reading) so the alpha fusion can
+ * de-risk during high-vol regimes. Called by the bot each scan.
  * Falls back silently — fusion still works with base TA alone.
  */
 export async function loadFusionContext() {
   try {
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const ctxPath = path.resolve(process.cwd(), 'data', 'regime_signal.json');
-    if (fs.existsSync(ctxPath)) {
-      const raw = JSON.parse(fs.readFileSync(ctxPath, 'utf8'));
+    const raw = loadRegimeSignal();
+    if (raw) {
       const regime = raw.regime === 'high-vol' ? 'highvol'
         : raw.regime === 'trend' ? 'trend' : 'chop';
       const btc = { regime, regimeSignal: { highVol: raw.highVol, realizedVol: raw.realizedVol, calmBaseline: raw.calmBaseline } };
