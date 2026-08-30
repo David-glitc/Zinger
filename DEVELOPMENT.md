@@ -696,3 +696,67 @@
 ## 2026-07-31 11:05 CEST — zinger-core contribution rules + Apache-2.0
 
 - Public Core relicensed to Apache-2.0 (`LICENSE` + `NOTICE`); expanded `CONTRIBUTING.md`, added `CODE_OF_CONDUCT.md` and GitHub PR/issue templates.
+
+## 2026-08-30 09:49 CEST — Zinger ↔ zinger-core harmonization; private tree converted to TypeScript
+
+Closes the split opened on 2026-07-31, where the public Core was converted to TS
+while this private ops tree stayed on JavaScript.
+
+### Upstream sync state (nothing left to merge)
+- `zinger-core` `origin/main` and `upstream/main` (NewGenesis04) are level, 0 commits
+  apart either way. Upstream PRs #1, #2, #3 are all merged. The build agent's
+  merge-and-sync-back task was already complete on the zinger-core side.
+- The two repos share no git history (zinger-core was published as an orphan tree),
+  so harmonization is a content-level sync, not a git merge.
+
+### Alpha research preserved first
+- Branch `alpha-research-safety` (pushed) commits the previously uncommitted
+  jump-model work: `ml/regime_{jump,emit,backtest}.py`, `alphaFusion`,
+  `scripts/paper-test`, and the governor/kelly/signal/bot wiring.
+
+### Core adopted from zinger-core (branch `ts-harmonization`)
+- 53 JS modules replaced by their TS counterparts; gained 18 modules this tree
+  lacked: `arbEngine`, `positions/{manager,policy,settle}`,
+  `scan/{cycle,inputs,exits}`, `engines/directional`, `telemetry/events`,
+  `config/{resolver,attribution}`, `ctf/merge`, `ledger/cash`, `types/domain`.
+- 27 of the 53 shared modules were byte-identical modulo `@ts-nocheck`; 26 had
+  drifted (notably `bot` 4038→3821 lines, logic extracted into `scan/`).
+- Also adopted: 22 vitest suites (243 tests), perf harness, tsconfigs, CI workflow,
+  41 TSX frontend components, `docs/ENGINEERING_HANDBOOK.md`.
+- `scripts/check-settlement.mjs` dropped for core's newer `.ts` (adds auth/readiness audit).
+
+### Alpha research re-applied on the new architecture
+- `signal.ts`, `kelly.ts`: research patches applied unchanged (were byte-identical).
+- `governor.ts`: `detectRegimeFromModel` hand-ported onto the new `dataPath()` helper.
+- `scan/inputs.ts`: fusion context load + book-imbalance refresh moved into
+  `collectSignals`, where scan()'s signal phase now lives.
+- `bot.ts`: per-market CLOB depth still feeds `botState.booksForFusion`.
+- kelly's `realizedVol`/`calmBaseline` stay optional → unwired callers resolve to
+  `volScale: 1`, so sizing behaviour is unchanged.
+
+### Remaining JS converted
+- `index`, `watch`, `src/dashboard`, and the automate/report/seed/trade-volume/
+  migrate-sqlite/paper-test scripts.
+- `public-api` (zinger-playground) → TS with its own tsconfig + tsx; stays a separate
+  deployable keeping public-safe trimmed copies of signal/kelly/edge.
+- `server/server.ts`: legacy unreferenced Robinhood server, converted not deleted.
+- Dropped stale `frontend/jsconfig.json`.
+
+### Verified
+- Root typecheck clean; 243 unit tests + 4 perf tests pass.
+- Playground typechecks, serves 200 on `/` and `/api/v1/docs`.
+- Frontend typechecks and builds; `apps/pilot` typechecks clean (untouched).
+- Runtime smoke: full import graph loads (server, bot 34 exports, blessed dashboard);
+  alpha fusion, vol tilt and regime detection all execute. `loadFusionContext()`
+  reads a live `data/regime_signal.json`.
+
+### Known state / next steps
+- 0 hand-written `.js`/`.jsx` left (the 2 remaining `.mjs` are pilot eslint/postcss configs).
+- Type debt is real and deliberate (phased migration): 129 files still carry
+  `@ts-nocheck` — src 68/71, frontend 43/45, scripts 10/10, public-api 7/7 — and root
+  tsconfig has `strict`/`strictNullChecks` off. `apps/pilot` is the exception:
+  126 files, `strict: true`, zero `@ts-nocheck`.
+- Next: strip `@ts-nocheck` file-by-file (tests are already 24/25 clean, so start
+  from the modules they cover) and raise strictness once src is clear.
+- `detectRegimeFromModel()` currently returns null because the on-disk regime signal
+  is older than its 6h freshness gate — rerun `ml/regime_emit.py` to re-arm it.
