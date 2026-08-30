@@ -17,6 +17,7 @@ import { loadFileOrStore, saveFileOrStore } from '../polymarket/sqliteStore.js';
 
 const DATA_DIR = path.resolve(import.meta.dirname, '../../data');
 const GOV_FILE = path.join(DATA_DIR, 'governor_state.json');
+const REGIME_SIG_FILE = path.join(DATA_DIR, 'regime_signal.json');
 
 // Bounded knob overlays per regime. Values stay inside optimizer/primitive bounds.
 export const REGIME_PROFILES = {
@@ -189,6 +190,22 @@ export function detectRegime({ signals = {} } = {}) {
   return { regime, avgAdx: round(avgAdx, 1), maxAtr: round(maxAtr), trending, reasons };
 }
 
+/**
+ * Optional override: the statistical jump-model signal (ml/regime_emit.py) gives a
+ * slow, stable regime that replaces the fast ADX/ATR heuristic when present and fresh.
+ * @returns {{regime: string, reasons: string[], source: string}|null}
+ */
+export function detectRegimeFromModel() {
+  const disk = loadJson(REGIME_SIG_FILE, null);
+  if (!disk || typeof disk !== 'object' || !disk.regime) return null;
+  const age = Date.now() - new Date(disk.at).getTime();
+  if (!Number.isFinite(age) || age > 6 * 3600_000) return null; // 6h freshness
+  if (disk.regime === 'high-vol') {
+    return { regime: 'arb-only', reasons: [`ML jump-model: high-vol regime (flips=${disk.flips}, rv=${round(disk.realizedVol, 4)})`], source: 'jump-model' };
+  }
+  return { regime: 'trend-ride', reasons: [`ML jump-model: calm regime (rv=${round(disk.realizedVol, 4)}, base=${round(disk.calmBaseline, 4)})`], source: 'jump-model' };
+}
+
 /** Apply a profile overlay via saveConfig; returns true only if something changed. */
 function applyProfile(name, { saveConfig, config }) {
   const overlay = REGIME_PROFILES[name];
@@ -284,7 +301,11 @@ export async function runGovernor({
 
     const closed = (trades || []).filter((t) => (t.closed || t.exitReason) && (t.mode || mode) === mode);
     const perf = { equity, netPnl: Number(portfolio.netPnl ?? 0) };
-    const detected = detectRegime({ signals });
+    let detected = detectRegime({ signals });
+    const modelDetected = detectRegimeFromModel();
+    if (modelDetected) {
+      detected = { ...detected, ...modelDetected };
+    }
 
     // --- Drawdown circuit-breaker (overrides everything) ---
     const breakerPct = Number(config.governorDrawdownPct ?? DEFAULTS.drawdownBreakerPct);

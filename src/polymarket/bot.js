@@ -32,7 +32,7 @@ import {
 import { buildSystemNarrative, buildLiveScoreCards } from './accountNarrative.js';
 import { appendEquityPoint, buildAccountBundle } from './accountSnapshot.js';
 import { getRemainingSeconds, getRemainingMs, getCycleEndMs, formatRemainingMs, POLY_MIN_ORDER_USD, POLY_SCAN_INTERVAL_MS, POLY_WINDOW_SECONDS, durationFromSlug, windowSecondsForDuration } from './config.js';
-import { getSignalForBoth } from './signal.js';
+import { getSignalForBoth, loadFusionContext, refreshFusionContext } from './signal.js';
 import { getMLSignalForBoth, getMLTraceForBoth } from './predict.js';
 import { addMLPrediction, addPriceTrace, getConfidenceBias, getConfidenceBufferStats, getPriceTrace } from './confidence.js';
 import { addSpotTick } from './spotPriceHistory.js';
@@ -2217,6 +2217,12 @@ async function scan() {
     const readiness = await refreshTelemetry();
 
     if (cfg.useSignals) {
+      await loadFusionContext();
+      // Feed fresh CLOB book imbalance into the alpha fusion for each asset.
+      refreshFusionContext({
+        btc: { book: botState.booksForFusion?.btc || null },
+        eth: { book: botState.booksForFusion?.eth || null },
+      });
       botState.signals = await getSignalForBoth();
       // Prefer cached ML ladder from background refresh; only force a light signal nudge
       const mlOverride = cfg.useML
@@ -2355,6 +2361,16 @@ async function scan() {
       const depth = (cfg.useOrderBookBias !== false || hasOpenHere)
         ? await getDepthForMarket(market).catch(() => null)
         : null;
+      const sym = String(market.symbol).toLowerCase();
+      if (depth && ['btc', 'eth'].includes(sym)) {
+        botState.booksForFusion = botState.booksForFusion || {};
+        botState.booksForFusion[sym] = {
+          bestBid: depth.up?.bestBid ?? depth.down?.bestBid ?? null,
+          bestAsk: depth.up?.bestAsk ?? depth.down?.bestAsk ?? null,
+          imbalance: (depth.up?.imbalance ?? depth.down?.imbalance) ?? null,
+          spreadPct: (depth.up?.spreadPct ?? depth.down?.spreadPct) ?? null,
+        };
+      }
       const remainingMs = market.endTime
         ? Math.max(0, market.endTime * 1000 - Date.now())
         : getRemainingMs();
