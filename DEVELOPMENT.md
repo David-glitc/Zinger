@@ -760,3 +760,57 @@ while this private ops tree stayed on JavaScript.
   from the modules they cover) and raise strictness once src is clear.
 - `detectRegimeFromModel()` currently returns null because the on-disk regime signal
   is older than its 6h freshness gate — rerun `ml/regime_emit.py` to re-arm it.
+
+## 2026-08-30 10:45 CEST — Three-regime audit: signal plumbing repaired, reachability pinned
+
+Triggered by feedback that the zinger-core contributor had rewritten the arb regime.
+Audited all three profiles (`trend-ride`, `scalp`, `arb-only`) for reachability.
+
+### The upstream arb rewrite is sound and already in this tree
+- `GOVERNOR_FORBIDDEN_KEYS` bars the governor from writing `minArbGap`,
+  `arbMinMarginPct`, `maxArbPackages`, `arbBankrollFrac`, `arbMaxUsd` — stripped
+  inside `applyProfile` (before the live branch, so it binds in paper too), not
+  merely omitted from the overlays. The real gate is fee-aware
+  (`arbBreakEvenGap` + `arbMinMarginPct`). `clobArbEnabled` / `arbOnlyUntilEdge`
+  stay writable: on/off is the regime call, how-much is not.
+- Rationale: ADX/ATR on BTC/ETH spot is a directional signal and says nothing
+  about a mispriced complementary pair, so it must not move an arb dial.
+
+### Three faults found — the regime system was partly dead
+1. **Store mismatch.** `ml/regime_emit.py` wrote a bare `data/regime_signal.json`
+   while the governor read via `loadFileOrStore` (sqlite on Node 22). The
+   governor never saw a reading. Emitter now writes through the shared store.
+2. **`scalp` was unreachable.** `detectRegimeFromModel` mapped calm →
+   `trend-ride`. The model is `n_states=2`, so answering trend-vs-chop starved
+   the third profile whenever the ML side was emitting. Calm now returns
+   `regime: null` and defers to ADX, still logging that it was consulted.
+3. **Alpha fusion silently blind.** `loadFusionContext` called
+   `loadRegimeSignal` without importing it, inside a bare `catch`, so the
+   ReferenceError was swallowed and it returned null forever. `@ts-nocheck` hid
+   it from tsc.
+
+### Fixes
+- New `src/polymarket/regimeSignal.ts` — single owner of the reading: one path
+  (`dataPath`, honouring `ZINGER_DATA_DIR`), one 6h freshness gate, one label map.
+- `governor.ts` and `signal.ts` both consume it; the governor no longer
+  duplicates the path or the staleness rule.
+- `tests/unit/regimeReachability.test.ts` (9 tests): every profile reachable from
+  the heuristic, high-vol forces `arb-only`, calm names nothing, both consumers
+  share one reading, both drop a stale one together. Mutation-verified — putting
+  either bug back fails the matching test.
+- Suite now 23 files / 252 tests, typecheck clean.
+
+### Still not active — operator decisions outstanding
+- **`governorEnabled: false`** in the persisted paper config, so the regime
+  switcher never runs (`governor.ts` returns `{ skipped: 'disabled' }`). Profiles
+  are correct but dormant; `profile` and `regime` are both null. The mode default
+  in `modeConfig.ts` is `true`, so this was explicitly turned off at some point.
+- **ML overlay dormant.** `data/ml/*.parquet` is ~17 days stale, and the emitter
+  stamps `at` from the last candle, so a fresh run still lands outside the 6h
+  gate. Refresh the OHLCV cache before the jump model can influence anything.
+- **`ml/.venv` is broken** (no numpy); the emitter only ran under system python3.
+- `minArbGap: 0.012` still sits in the persisted config — a leftover from when
+  the governor could write it. Harmless (it is only a floor beneath the fee-aware
+  gate) and now operator-owned, but it was never an operator's choice.
+- Not claimed: profile *optimisation*. The overlays carry the July paper-sim
+  tuning; nothing was re-measured in this pass.
