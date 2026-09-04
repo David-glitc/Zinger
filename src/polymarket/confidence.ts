@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { clampConfidence, CONF_CAP } from './confidenceScale.js';
 const MAX_BUFFER_SIZE = 12;
 const BUFFER_WINDOW_MS = 180000; // 3 min rolling window
 
@@ -89,7 +90,7 @@ function getTraceBias(asset, rawSignal) {
   for (const point of trace.prices) {
     const dir = normalizeDirection(point.direction);
     if (dir === 'neutral') continue;
-    const w = 1 / Math.max(1, (point.minutes || 5) / 5); // nearer horizons weigh more
+    const w = 1 / Math.max(1, (point.minutes || 5) / 5);
     const match = (dir === 'up') === rawIsBull;
     agree += match ? w * (point.confidence || 0.5) : -w * (point.confidence || 0.5);
     weight += w;
@@ -123,9 +124,7 @@ export function getConfidenceBias(asset, rawSignal) {
   }
 
   const totalBias = confidenceBoost + momentumBoost + (traceBoost || 0);
-  // Hard cap — inflated ML/consensus conf caused false certainty and bad TP/SL
-  const CONF_CAP = 0.65;
-  const adjusted = Math.max(0, Math.min(CONF_CAP, (rawSignal?.confidence || 0) + totalBias * 0.5));
+  const adjusted = clampConfidence((rawSignal?.confidence || 0) + totalBias * 0.5);
   return {
     bias: totalBias,
     adjusted,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSlugWindow, currentWallWindow, marketWindow } from '../../src/polymarket/windows.js';
+import { parseSlugWindow, currentWallWindow, marketWindow, isMarketWindowOpen } from '../../src/polymarket/windows.js';
 
 describe('parseSlugWindow', () => {
   it('parses btc 5m slug', () => {
@@ -53,5 +53,15 @@ describe('marketWindow', () => {
     const w = marketWindow({ slug: 'btc-updown-5m-1700000000', symbol: 'BTC' }, nowMs);
     expect(w.source).toBe('slug');
     expect(w.isOpen).toBe(true);
+  });
+});
+
+describe('isMarketWindowOpen', () => {
+  it('marks live slug open and next slug closed at boundary', () => {
+    const nowMs = 1_700_000_250_000; // 250s into 300s window starting 1700000000
+    const cur = { slug: 'btc-updown-5m-1700000000', symbol: 'BTC', windowSeconds: 300, acceptingOrders: true };
+    const nxt = { slug: 'btc-updown-5m-1700000300', symbol: 'BTC', windowSeconds: 300, acceptingOrders: true };
+    expect(isMarketWindowOpen(cur, nowMs)).toBe(true);
+    expect(isMarketWindowOpen(nxt, nowMs)).toBe(false);
   });
 });

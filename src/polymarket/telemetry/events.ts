@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { signedUsd } from '../../lib/money.js';
 import { EventEmitter } from 'node:events';
 
 export const TELEMETRY_SCHEMA_VERSION = 1;
@@ -185,7 +186,7 @@ export function formatEventAsLog(event: BaseTelemetryEvent): { text: string; lev
       const sym = d.symbol || '';
       const outcome = String(d.outcome || '').toUpperCase();
       const pnlVal = Number(d.netPnl ?? d.pnl ?? 0);
-      const pnlTxt = `${pnlVal >= 0 ? '+' : ''}$${pnlVal.toFixed(2)}`;
+      const pnlTxt = signedUsd(pnlVal);
       return {
         text: `🏁 EXIT [${reason}] ${sym} ${outcome} · PnL ${pnlTxt} · ${d.slug || ''}`,
         level: pnlVal >= 0 ? 'tp' : 'sl',
@@ -193,7 +194,7 @@ export function formatEventAsLog(event: BaseTelemetryEvent): { text: string; lev
     }
     case 'package.settlement': {
       const pnlVal = Number(d.netPnl ?? d.grossPnl ?? 0);
-      const pnlTxt = `${pnlVal >= 0 ? '+' : ''}$${pnlVal.toFixed(2)}`;
+      const pnlTxt = signedUsd(pnlVal);
       return {
         text: `📦 ARB SETTLED [${d.packageId || ''}] · ${d.mode || 'paper'} · Net PnL ${pnlTxt}`,
         level: 'arb',

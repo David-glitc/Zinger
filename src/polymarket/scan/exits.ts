@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { positionWindowEndMs } from '../positions/settle.js';
+import { signedUsd } from '../../lib/money.js';
 
 export async function settlePaperOrphans(positions, { executeSell, log } = {}) {
   if (!Array.isArray(positions) || typeof executeSell !== 'function') return { settled: 0 };
@@ -16,7 +17,7 @@ export async function settlePaperOrphans(positions, { executeSell, log } = {}) {
       if (result?.ok) {
         settledCount += 1;
         if (typeof log === 'function') {
-          const pnlTxt = `${(pos.pnl || 0) >= 0 ? '+' : ''}$${Math.abs(pos.pnl || 0).toFixed(2)}`;
+          const pnlTxt = signedUsd(pos.pnl);
           log(
             `🏁 PAPER ORPHAN SETTLE ${pos.symbol} ${String(pos.outcome || '').toUpperCase()} · ${pnlTxt} · ${pos.slug}`,
             (pos.pnl || 0) >= 0 ? 'tp' : 'sl',

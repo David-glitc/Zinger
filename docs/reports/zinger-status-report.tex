@@ -1,0 +1,393 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+\definecolor{zingerblue}{HTML}{1E3A5F}
+\definecolor{zingeraccent}{HTML}{2563EB}
+\definecolor{zingerwarn}{HTML}{B45309}
+\definecolor{zingerok}{HTML}{047857}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=zingeraccent,
+  urlcolor=zingeraccent,
+  citecolor=zingeraccent,
+  pdftitle={Zinger Polymarket Bot --- Status Report},
+  pdfauthor={Zinger Operator Session}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{zingerblue}{Zinger Status Report}}
+\fancyhead[R]{\small\textcolor{gray}{2 September 2026, 18:32 UTC+1}}
+\fancyfoot[C]{\thepage}
+
+\titleformat{\section}{\large\bfseries\color{zingerblue}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{zingerblue}}{}{0em}{}
+
+\title{\textbf{Zinger Polymarket Trading Bot}\\[0.4em]
+\large Session Progress, Current State \& Improvement Roadmap}
+\author{Compiled from \texttt{DEVELOPMENT.md}, live observability API, and operator session}
+\date{2 September 2026, 18:32 UTC+1}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+This report documents work completed on the \textbf{Zinger} paper-trading bot for Polymarket BTC/ETH 5-minute up/down markets between late August and 2 September 2026. It covers infrastructure delivered (arb engine, directional stack, observability, backtest), the current live paper session, P\&L attribution, known failure modes, and a prioritized improvement plan. Data snapshot: session \texttt{session-mtjqc931}, equity \textbf{\$884.51} ($-11.5\%$ from \$1{,}000 reset), 45 session closes, 13\% directional win rate on 100-trade lookback, arb packages net positive at package level.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Executive Summary}
+%==============================================================================
+
+\subsection{What Zinger Is}
+Zinger is a TypeScript full-stack system (\texttt{/home/david/Zinger}) comprising:
+\begin{itemize}[noitemsep]
+  \item A \textbf{scan loop} on Polymarket CLOB/Gamma for BTC and ETH 5m binaries
+  \item Two engines: \textbf{directional} (TA + book + optional strike forecast) and \textbf{atomic arb} (buy both legs when UP+DOWN $<$ \$1 minus fees)
+  \item \textbf{Paper and live} modes with operator dashboard (port 3000)
+  \item \textbf{Governor} regime switching, edge gate, signal health, and data assurance layers
+\end{itemize}
+
+\subsection{Bottom Line}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Area} & \textbf{Assessment} \\
+\midrule
+Infrastructure \& reliability & \textcolor{zingerok}{Strong} --- observability, arb rollback, settlement fixes, config authority \\
+Arb strategy (package level) & \textcolor{zingerok}{Working} --- 2 packages, +\$0.86 to +\$0.68 net; rare on live books \\
+Directional edge (paper) & \textcolor{zingerwarn}{Weak} --- session directional P\&L roughly $-\$15$ on 57 closes \\
+6-month synthetic backtest & \textcolor{zingerwarn}{Marginal} --- +\$60 on \$10k arb-only (+0.6\%), synthetic CLOB \\
+Operator UX & \textcolor{zingerok}{Improved} --- Tune tab, Observe tab, session scripts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+\textbf{Primary drag:} directional 30¢-band scalping with stop-losses in a market where fees and spread dominate small edges. \textbf{Arb is not the loss source} --- individual arb legs show large wins/losses at settlement, but packages net positive.
+
+%==============================================================================
+\section{Work Completed (Chronological)}
+%==============================================================================
+
+\subsection{Configuration Authority (31 Aug)}
+\begin{itemize}[noitemsep]
+  \item Fixed governor/optimizer silently overwriting operator dashboard saves
+  \item \texttt{canWrite} / \texttt{partitionPatchByAuthority} in \texttt{config/resolver.ts}
+  \item Operator tier patches now persist; automation cannot stomp manual knobs
+\end{itemize}
+
+\subsection{Sizing \& Signal Stack Repair (31 Aug)}
+\begin{itemize}[noitemsep]
+  \item \textbf{Sizing bug:} \texttt{maxPositionCap: 4} from \$150-era config capped all trades at \$4; repaired to bankroll-scaled caps
+  \item \textbf{Confidence scale:} Kelly used 0--1 assumption; real fused confidence spans $\sim$0.05--0.46; added \texttt{sizingScalar()}
+  \item \textbf{MACD units bug} (historical): signal health module added after degenerate 100\% DOWN / ML-flip-to-UP incident
+  \item \textbf{Strike forecast} (\texttt{strikeForecast.ts}): $P(\text{above strike})$ from spot, vol, time; plausibility cap at 15\% edge
+  \item \textbf{Book microstructure} (\texttt{bookMicrostructure.ts}): ladder imbalance, microprice, slippage walk
+  \item Unit tests expanded ($\sim$364+ passing at time of log)
+\end{itemize}
+
+\subsection{Classic Paper Architecture Restore (1 Sep)}
+\begin{itemize}[noitemsep]
+  \item \texttt{classicPaperStrategy()} --- pre-live flow without stacked gates blocking all buys
+  \item Disabled hold-to-settle grind, strike veto, ML on paper profile variants
+  \item Data assurance: empty current-market set $\rightarrow$ warn not block
+  \item Hard reset to \$1{,}000; governor re-enabled with DD breaker
+\end{itemize}
+
+\subsection{Depth-Aware Arb \& Governor (1 Sep)}
+\begin{itemize}[noitemsep]
+  \item \texttt{arbDepth.ts} --- walks both ask ladders; no touch-only phantom gaps
+  \item \texttt{arbEngine.ts} --- atomic packages, leg rollback on partial fill, orphan reconciliation
+  \item Arb scans every cycle when \texttt{clobArbEnabled}; not only in arb-only mode
+  \item Governor profiles updated to 25--38¢ band alignment
+\end{itemize}
+
+\subsection{Historical Backtest Engine (1 Sep)}
+\begin{itemize}[noitemsep]
+  \item \texttt{src/polymarket/backtest/} --- Binance 1m $\rightarrow$ synthetic CLOB, full replay
+  \item \textbf{6-month arb-only run:} \$10{,}000 $\rightarrow$ \$10{,}060 (+0.6\%), 74 arb packages, 0 reloads
+  \item Settlement bugfix: credit full \$1/share on arb settle
+  \item \textbf{Caveat:} no real Polymarket CLOB history; gaps are synthetic
+\end{itemize}
+
+\subsection{Observability \& Operator UI (1--2 Sep)}
+\begin{itemize}[noitemsep]
+  \item \texttt{observability/} --- unified snapshot, alerts, SSE stream
+  \item Dashboard tabs: \textbf{Observe} (\texttt{/\#observe}), \textbf{Tune} (\texttt{/\#tune})
+  \item Governor API: regime manual/auto, clear DD breaker
+  \item \texttt{npm run observe}, \texttt{npm run session:200}
+  \item Poll interval 250ms $\rightarrow$ 2000ms (SSE handles realtime)
+\end{itemize}
+
+\subsection{Incident Fixes (1 Sep)}
+\begin{itemize}[noitemsep]
+  \item Orphan arb leg past window end blocked all buys; scan loop hung
+  \item \texttt{recomputeDataAssurance()} on sells; 90s scan watchdog
+  \item Arb leg execution: fixed \texttt{!!executeTrade()} truthy-on-refusal bug (item 27)
+  \item Arb rollback: both entry and exit fees now charged correctly
+\end{itemize}
+
+\subsection{Session Work (2 Sep)}
+\begin{itemize}[noitemsep]
+  \item \texttt{directionalSessionStrategy()} --- 30¢ band (0.25--0.35), TP/SL exits, gates off
+  \item Hard reset + 200-trade observer session (\texttt{directional-session-200.ts})
+  \item \textbf{Arb loosened:} \texttt{minArbGap} 0.5\%, \texttt{arbMinMarginPct} 0.2\%, \texttt{maxArbPerSlug: 3}
+  \item \textbf{Arb UI fix:} removed fake $\pm$999\% TP/SL display; arb legs show ``hold to settle''
+  \item Paper reset clears governor lock + signal health state
+\end{itemize}
+
+%==============================================================================
+\section{Architecture Overview}
+%==============================================================================
+
+\begin{figure}[h]
+\centering
+\fbox{\parbox{0.92\textwidth}{\small
+\textbf{Scan loop (every $\sim$2s)}\\
+Markets (BTC/ETH 5m) $\rightarrow$ depth + spot + PTB\\
+$\rightarrow$ \textbf{Arb engine} (ladder walk, package lock) \quad [parallel]\\
+$\rightarrow$ \textbf{Directional} (analyze $\rightarrow$ alphaFusion $\rightarrow$ buildDecision $\rightarrow$ Kelly)\\
+$\rightarrow$ Gates: edge, governor, signal health, data assurance\\
+$\rightarrow$ executePendingTrade $\rightarrow$ positions $\rightarrow$ TP/SL/settle\\
+Governor $\rightarrow$ regime overlay (scalp / trend-ride / arb-only) + DD breaker
+}}
+\caption{High-level decision flow}
+\end{figure}
+
+\subsection{Key Modules}
+\begin{longtable}{@{}p{3.2cm}p{9.8cm}@{}}
+\toprule
+\textbf{Module} & \textbf{Role} \\
+\midrule
+\endhead
+\texttt{arbEngine.ts} & Detect gap, lock UP+DOWN package, rollback on single-leg fill \\
+\texttt{arbDepth.ts} & Fee-aware ladder walk on both asks \\
+\texttt{engines/directional.ts} & Candidate scoring, edge filter, side balance \\
+\texttt{kelly.ts} & Position sizing + TP/SL/hold-to-settle plan \\
+\texttt{strikeForecast.ts} & Strike geometry vs spot; veto on implausible edge \\
+\texttt{signalHealth.ts} & Distribution/saturation checks; suspend directional if broken \\
+\texttt{ai/governor.ts} & Regime profiles, DD breaker, manual lock \\
+\texttt{edge.ts} & Rolling expectancy gate (\texttt{arbOnlyUntilEdge}) \\
+\texttt{observability/} & Snapshot, alerts, session metrics \\
+\texttt{backtest/} & 6-month replay on synthetic books \\
+\bottomrule
+\end{longtable}
+
+%==============================================================================
+\section{Current State (Live Snapshot)}
+%==============================================================================
+
+\noindent\textit{Captured 2 Sep 2026, 08:12 UTC from \texttt{session-observe-500-summary.json} (observer may have stopped since).}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Session ID & \texttt{session-mtjqc931} \\
+Session started & 2026-09-02 06:43 UTC \\
+Bot running (at snapshot) & Yes \\
+Equity & \$884.51 \\
+Peak equity (session) & \$998.70 \\
+Drawdown off peak & 11.43\% \\
+Governor regime & scalp (ADX 13 range/chop) \\
+DD breaker & Off \\
+Price band & 0.25 -- 0.35 (30¢ directional) \\
+Open positions & 0 \\
+Session closes & 45 (8W / 37L, 18\% WR) \\
+Session P\&L & $-\$3.61$ \\
+Scans completed & 2{,}713 \\
+Avg trade size & \$7.43 (range \$1.45--\$10.25) \\
+Side balance (session) & 42 UP / 3 DOWN (93\% UP) \\
+Edge gate (100 lookback) & 13\% WR, $-\$0.22$/trade expectancy \\
+Signal health & OK, directional trustworthy \\
+Data assurance & Score 100, canBuy true (at snapshot) \\
+CLOB WebSocket & Connected, 8 subscriptions \\
+\bottomrule
+\end{tabular}
+\caption{Live observability snapshot}
+\end{table}
+
+\noindent\textbf{Alerts at snapshot:} stale scan loop (83s since last scan --- possible hang); edge gate warning (\texttt{edgeMinTrades: 999} misleading ``arb-only'' message while directional still allowed).
+
+\subsection{P\&L Attribution (Recent Session)}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Engine} & \textbf{Closes} & \textbf{Net P\&L} & \textbf{Notes} \\
+\midrule
+Directional & $\sim$26--57 & $\sim -\$15$ & SL-heavy; 30¢ band \\
+Arb (leg sum) & 4 legs (2 pkgs) & $+\$0.68$ & One leg always loses at settle \\
+\midrule
+\textbf{Total} & & \textbf{$\sim -\$14$} & Directional dominates \\
+\bottomrule
+\end{tabular}
+\caption{Engine-level attribution --- arb profitable at package level}
+\end{table}
+
+\subsection{Active Configuration}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Knob} & \textbf{Value} \\
+\midrule
+\texttt{minArbGap} & 0.5\% \\
+\texttt{arbMinMarginPct} & 0.2\% \\
+\texttt{maxArbPackages} & 6 \\
+\texttt{maxArbPerSlug} & 3 (stack up to 3 arb packages per window) \\
+\texttt{arbBankrollFrac} / \texttt{arbMaxUsd} & 10\% / \$45 \\
+\texttt{minPrice} / \texttt{maxPrice} & 0.25 / 0.35 \\
+\texttt{slPct} / \texttt{tpPctLow} & 12\% / 18\% \\
+\texttt{holdToSettleFavorites} & false \\
+\texttt{arbOnlyUntilEdge} & false \\
+\texttt{useStrikeForecast} / \texttt{useML} & false / false \\
+\texttt{governorEnabled} & true (DD breaker 15\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Arb Strategy (How It Works)}
+\begin{enumerate}[noitemsep]
+  \item When $\text{ask}_{\text{UP}} + \text{ask}_{\text{DOWN}} < 1 - \text{fees} - \text{margin}$, buy equal shares of both legs
+  \item Walk both ask ladders --- touch gap often overstates real fill
+  \item Hold both to window settlement; one leg pays \$1/share, other \$0
+  \item Package net $=$ locked edge at entry (typically \$0.25--\$0.65 per package on recent fills)
+  \item If one leg fails to fill, rollback the other (costs both fees)
+\end{enumerate}
+
+%==============================================================================
+\section{Known Problems \& Failure Modes}
+%==============================================================================
+
+\begin{enumerate}
+  \item \textbf{Directional edge not demonstrated on paper.} Repeated SL hits in 30¢ band; fees $\sim$3--7\% of notional erode small targets.
+  \item \textbf{Gate stacking (historical).} DD breaker + edge gate + signal health + orphan blocks created long no-trade periods. Partially fixed; still complex.
+  \item \textbf{Live arb rarity.} Real CLOB gaps after ladder walk are infrequent; 2 arb packages in hours vs 50+ directional trades.
+  \item \textbf{Synthetic backtest optimism gap.} 6mo +0.6\% on injected mispricing may not transfer to live microstructure.
+  \item \textbf{Spot vs Chainlink resolution feed.} Strike forecast can disagree with market when spot feed diverges from settlement oracle.
+  \item \textbf{UP-side bias (active).} Session side balance 93\% UP (42 vs 3). Side-balance rule requires both outcomes passing edge filter; if DOWN rarely passes, monopoly persists.
+  \item \textbf{Process stability.} OOM kills (exit 137), scan hangs, orphan legs --- mitigated but recurred.
+  \item \textbf{Hold-to-settle dead band (historical).} 0.42--0.50 neither underdog nor favorite caused unintended mid-window SL exposure.
+\end{enumerate}
+
+%==============================================================================
+\section{What to Improve (Prioritized Roadmap)}
+%==============================================================================
+
+\subsection{P0 --- Prove or Kill Directional Edge}
+\begin{itemize}
+  \item Run isolated \textbf{directional-only} and \textbf{arb-only} sessions (100+ closes each) with clean resets
+  \item Measure: expectancy, fee drag, SL rate, time-in-trade, side balance
+  \item If 30¢ band WR $<$ break-even after fees $\rightarrow$ widen band, tighten confidence gate, or pause directional
+  \item Decision rule: no live capital until paper expectancy $>$ 0 over 200 closes in chosen profile
+\end{itemize}
+
+\subsection{P1 --- Real Book Data for Arb}
+\begin{itemize}
+  \item Record CLOB WS snapshots to disk (\texttt{data/clob-snapshots/})
+  \item Replay recorded books in backtest instead of synthetic \texttt{bookSim} gaps
+  \item Calibrate \texttt{minArbGap} / \texttt{arbMinMarginPct} on real gap distribution
+  \item Target: know live arb hit rate (packages/day) before sizing up
+\end{itemize}
+
+\subsection{P1 --- Fee-Adjusted Expectancy Dashboard}
+\begin{itemize}
+  \item Package-level arb P\&L card (not per-leg) in UI
+  \item Per-engine rolling expectancy, break-even WR, Kelly validity
+  \item Alert when directional WR below break-even for 20+ closes
+\end{itemize}
+
+\subsection{P2 --- Resolution Feed Alignment}
+\begin{itemize}
+  \item Source spot from same feed Polymarket uses for PTB resolution (Chainlink stream)
+  \item Reduce false strike-forecast vetoes and wrong-side entries on feed skew
+\end{itemize}
+
+\subsection{P2 --- Simplify Gate Stack}
+\begin{itemize}
+  \item Single ``can trade directional / can trade arb'' panel with explicit reasons
+  \item Preset profiles: \texttt{arb-hunt}, \texttt{directional-30c}, \texttt{classic-paper} --- one-click, no conflicting overlays
+  \item Edge gate: disable or raise \texttt{edgeMinTrades} on paper (currently misleading ``arb-only'' alerts)
+\end{itemize}
+
+\subsection{P3 --- Reliability}
+\begin{itemize}
+  \item Memory profiling / OOM guardrails on scan loop
+  \item Automated orphan detection + unwind cron
+  \item Health endpoint: last scan age, \texttt{\_scanning} lock state
+\end{itemize}
+
+\subsection{P3 --- Live Readiness}
+\begin{itemize}
+  \item CTF instant merge path tested on testnet
+  \item Live safety caps enforced (\texttt{assertLiveSafetyCaps})
+  \item Arb-only live pilot with \$50 cap before directional live
+\end{itemize}
+
+%==============================================================================
+\section{Recommended Next Session}
+%==============================================================================
+
+\begin{enumerate}
+  \item \textbf{Stop blended session.} Directional is bleeding; arb is too rare to offset.
+  \item \textbf{Fork A (arb focus):} \texttt{forceArbOnly: true}, loosened gaps (current), 48h observe --- count packages/day and net P\&L.
+  \item \textbf{Fork B (directional refine):} Widen to 0.22--0.38, raise \texttt{minConfidence}, require book quality $>$ 0.25, 100-trade clean run.
+  \item \textbf{Do not} scale position size until rolling expectancy turns positive.
+  \item Export this report + \texttt{session-observe-500.jsonl} weekly for audit trail.
+\end{enumerate}
+
+%==============================================================================
+\section{Appendix: Commands \& Paths}
+%==============================================================================
+
+\begin{verbatim}
+Project root:     /home/david/Zinger
+Dashboard:        http://127.0.0.1:3000  (#observe, #tune)
+Start bot:        npm start
+200-trade session: npm run session:200
+Observer:         npm run observe -- --target=200
+6mo backtest:     npx tsx scripts/historical-backtest.ts --months=6 --arb-only
+Compile report:   cd docs/reports && tectonic zinger-status-report.tex
+Dev log:          DEVELOPMENT.md
+Observer log:     data/session-observe-500.jsonl
+Observer summary: data/session-observe-500-summary.json
+Backtest result:  data/backtest/backtest-6mo-arb-2026-09-01T17-27-57.json
+PDF output:       docs/reports/zinger-status-report.pdf
+\end{verbatim}
+
+\vfill
+\begin{center}
+\small
+\textcolor{gray}{Generated from Zinger operator session materials. Not financial advice.\\
+Paper trading results do not guarantee live performance.}
+\end{center}
+
+\end{document}

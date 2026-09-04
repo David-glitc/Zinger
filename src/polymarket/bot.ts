@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { findMarkets, fetchPriceToBeat } from './markets.js';
+import { signedUsd } from '../lib/money.js';
+import { findMarkets, fetchPriceToBeat, selectTradableMarkets, rehydrateMarketWindows } from './markets.js';
 import {
   takerFeeUsdc,
   takerFeeUsdcForToken,
@@ -7,13 +8,17 @@ import {
   closeProceedsWithFee,
   closeProceedsWithFeeForToken,
   isFeeFreeExit,
+  peekClobFeeParams,
 } from './fees.js';
 import { buildDataAssurance } from './dataAssurance.js';
+import { buildObservabilityBundle } from './observability/index.js';
 import { getPricesForMarket, getDepthForMarket } from './clob.js';
 import {
   startClobMarketStream,
   setClobMarketTokens,
   getClobWsSnapshot,
+  takeArbHuntForMarket,
+  peekArbHuntForMarket,
 } from './clobWs.js';
 import {
   startSessionLedger,
@@ -32,7 +37,12 @@ import {
 } from './liveAccount.js';
 import { buildSystemNarrative, buildLiveScoreCards } from './accountNarrative.js';
 import { appendEquityPoint, buildAccountBundle } from './accountSnapshot.js';
-import { getRemainingSeconds, getRemainingMs, getCycleEndMs, formatRemainingMs, POLY_SCAN_INTERVAL_MS, POLY_WINDOW_SECONDS, durationFromSlug, windowSecondsForDuration } from './config.js';
+// `formatRemainingMs` is deliberately NOT taken from here: scan/cycle.js
+// exports a different function under the same name, and this file imports
+// both. Duplicate bindings are a SyntaxError under strict ESM and only survive
+// because esbuild lets the last import win — which meant the cycle.js version
+// was the one running while this line suggested otherwise.
+import { getRemainingSeconds, getRemainingMs, getCycleEndMs, POLY_SCAN_INTERVAL_MS, POLY_WINDOW_SECONDS, durationFromSlug, windowSecondsForDuration, SPOT_SYMBOLS } from './config.js';
 import { getSignalForBoth } from './signal.js';
 import { getMLSignalForBoth, getMLTraceForBoth } from './predict.js';
 import { addMLPrediction, addPriceTrace, getConfidenceBias, getConfidenceBufferStats, getPriceTrace } from './confidence.js';
@@ -40,15 +50,20 @@ import { addSpotTick } from './spotPriceHistory.js';
 import { getModelStates, getModelHealth, onModelChange } from './modelRegistry.js';
 import {
   detectAndExecuteArbPackage,
+  detectAndExecuteArbPackages,
+  detectAndExecuteReverseBidPackage,
   isComplementaryBinary,
   syncPackageSettlements,
   reconcilePendingPackages,
+  captureLockedArbPackages,
   getArbPackageMetrics,
+  evaluateArbSurfaces,
   loadPackages,
   resetPackages,
+  resolveArbGates,
 } from './arbEngine.js';
 import { persist, persistSync, load, FILES, dataPath } from './persistence.js';
-import { placeOrder, placeMarketSell, syncClobBalance } from './trade.js';
+import { placeOrder, placeMarketBuy, placeMarketSell, sellFloor, syncClobBalance } from './trade.js';
 import { checkReadiness } from './readiness.js';
 import { resolveDynamicLimits, setKellyTradeHistory, getKellyStats, buildDynamicPlan, checkTrailingStop, checkPartialProfit, resolveAdaptiveSl } from './kelly.js';
 import {
@@ -63,7 +78,7 @@ import {
   tradeEngine,
 } from './audit.js';
 import { createPaperCashLedger } from './ledger/cash.js';
-import { record as recordAttribution, writerSummary, recentChanges } from './config/attribution.js';
+import { record as recordAttribution, writerSummary, recentChanges, writerOf } from './config/attribution.js';
 import {
   countOpen,
   sideBalance,
@@ -87,6 +102,7 @@ import {
   defaultPaperStrategy,
   defaultLiveStrategy,
   getDefaultPaperBankroll,
+  SHARED_KEYS,
 } from './modeConfig.js';
 import {
   currentWallWindow,
@@ -94,6 +110,7 @@ import {
   parseSlugWindow,
   computeWindowStats,
   windowKeyFromTrade,
+  isMarketWindowOpen,
 } from './windows.js';
 import {
   formatRemainingMs,
@@ -106,7 +123,10 @@ import {
   collectSignals,
   enrichMarketsWithOracle,
 } from './scan/inputs.js';
-import { resolveTradingPermissions } from './config/resolver.js';
+import { resolveTradingPermissions, partitionPatchByAuthority } from './config/resolver.js';
+import { getSignalHealth } from './signalHealth.js';
+import { forecastAboveStrike, volPerMinuteFromSignal } from './strikeForecast.js';
+import { touchArbGap } from './arbDepth.js';
 import {
   emitEvent,
   queryEvents as queryTelemetryEvents,
@@ -120,7 +140,8 @@ import {
 } from './configSessions.js';
 import { llmStatus } from '../ai/llm.js';
 import { runOptimizer, getOptimizerStatus, recordCycleSession, loadSessionPerf } from '../ai/optimizer.js';
-import { runGovernor, getGovernorStatus, getActiveProfile, computeProfilePerf, resetGovernorPeak } from '../ai/governor.js';
+import { runGovernor, getGovernorStatus, getActiveProfile, computeProfilePerf, resetGovernorPeak, setGovernorRegime, setGovernorAuto, clearGovernorBreaker } from '../ai/governor.js';
+import { resetSignalHealth } from './signalHealth.js';
 
 let botState = {
   running: false,
@@ -200,7 +221,7 @@ function resolveMarketDurations(cfg = botState.config) {
   if (Array.isArray(cfg?.enabledDurations) && cfg.enabledDurations.length) {
     return cfg.enabledDurations;
   }
-  return cfg?.use15m === false ? ['5m'] : ['5m', '15m', '30m', '1h'];
+  return cfg?.use15m === false ? ['5m'] : ['5m', '15m', '4h'];
 }
 
 export function loadConfig() {
@@ -231,10 +252,33 @@ function syncConfigFromStore() {
  * visible in `writerSummary()` rather than silently mislabelled as the operator.
  */
 export function saveConfig(cfg, origin = { tier: 'system', source: 'unattributed' }) {
-  const patch = cfg || {};
   const before = botState.configStore || loadConfigStore();
-  let store = applyConfigPatch(before, patch);
   const now = Date.now();
+
+  // Precedence is enforced on the way IN, not just when reading. Without this
+  // the governor's ~19-key regime overlay reasserted itself every ~120s over
+  // whatever the operator had just saved from the dashboard, so a UI change
+  // appeared to "not save" when in fact it saved and was then overwritten.
+  // Automation still owns every field the operator has not claimed.
+  const patchScope = cfg?.mode === 'live' || cfg?.mode === 'paper'
+    ? cfg.mode
+    : (before.mode === 'live' ? 'live' : 'paper');
+  const { allowed: policedPatch, blocked } = partitionPatchByAuthority(
+    cfg || {},
+    origin?.tier || 'system',
+    (field) => (SHARED_KEYS.has(field)
+      ? writerOf(before, 'root', field)?.tier
+      : writerOf(before, patchScope, field)?.tier) || null,
+  );
+  if (blocked.length) {
+    const held = blocked.map((b) => `${b.field}=${JSON.stringify(b.value)} (held by ${b.ownerTier})`).join(', ');
+    log(`🚦 Config precedence: ${origin?.source || origin?.tier || 'writer'} refused on ${blocked.length} field(s) — ${held}`, 'system', {
+      refused: blocked, writerTier: origin?.tier, scope: patchScope,
+    });
+  }
+
+  const patch = policedPatch;
+  let store = applyConfigPatch(before, patch);
 
   // Attribute the caller's own change first, before any guard runs.
   store = { ...store, attribution: recordAttribution(before, store, origin, now) };
@@ -435,20 +479,11 @@ function sideBalanceStats(cfg) {
 
 function detectClobArb(depth, prices, cfg, market) {
   if (!isComplementaryBinary(market)) return null;
-  const upAsk = Number(depth?.up?.bestAsk || prices?.up || 0);
-  const downAsk = Number(depth?.down?.bestAsk || prices?.down || 0);
-  if (!(upAsk > 0.01 && downAsk > 0.01 && upAsk < 0.99 && downAsk < 0.99)) return null;
-  const sum = upAsk + downAsk;
-  const gap = 1 - sum;
-  const minGap = Number(cfg.minArbGap ?? 0.015);
-  if (gap < minGap) return null;
-  return {
-    upAsk,
-    downAsk,
-    sum: Math.round(sum * 1000) / 1000,
-    gap: Math.round(gap * 1000) / 1000,
-    edgePct: Math.round(gap * 1000) / 10,
-  };
+  const touch = touchArbGap(depth, prices);
+  if (!touch) return null;
+  const minGap = Number(cfg.minArbGap ?? 0.008);
+  if (touch.gap < minGap) return null;
+  return touch;
 }
 
 /**
@@ -551,11 +586,22 @@ async function arbHousekeeping(reason = 'scan') {
       saveTrade,
     });
 
-    if (settled || rec.locked || rec.aborted || rec.discarded) {
+    const capt = await captureLockedArbPackages({
+      mode,
+      cfg: botState.config,
+      botState,
+      markets: botState.markets || [],
+      log,
+      adjustPaperCash,
+      saveTrade,
+      depthBySlug: botState._depthBySlug || null,
+    });
+
+    if (settled || rec.locked || rec.aborted || rec.discarded || capt.captured) {
       saveState();
       notifyStateChange();
     }
-    return { settled, ...rec };
+    return { settled, ...rec, ...capt };
   } catch (err) {
     log(`⚠️ Arb housekeeping failed (${reason}): ${String(err?.message || err).slice(0, 120)}`, 'error');
     return null;
@@ -620,6 +666,27 @@ function hasOpenOnSlug(slug) {
   });
 }
 
+function isArbHoldPlan(plan) {
+  return !!(plan?.isArbLeg || plan?.packageId || plan?.exitMode === 'settlement');
+}
+
+function planExitLog(plan) {
+  if (isArbHoldPlan(plan)) return 'hold to settle (arb package)';
+  if (plan?.holdToSettle) return `hold to settle · disaster SL -${plan.slPct ?? '?'}%`;
+  return `TP +${plan.targetTp ?? '?'}% · SL -${plan.slPct ?? '?'}%`;
+}
+
+function planExitTrace(plan) {
+  if (isArbHoldPlan(plan)) return ['exit: hold to settle (arb package)'];
+  if (plan?.holdToSettle) {
+    return [`exit: hold to settle`, `disaster SL -${plan.slPct ?? '?'}%`];
+  }
+  return [
+    `TP +${plan.targetTp ?? '?'}% → $${Number(plan.tpPrice || 0).toFixed(3)}`,
+    `SL -${plan.slPct ?? '?'}% → $${Number(plan.slPrice || 0).toFixed(3)}`,
+  ];
+}
+
 /** Binds the D4 manager's portfolio view to botState. No logic here. */
 function portfolioView(slug, cfg) {
   return buildPortfolioView({
@@ -629,8 +696,75 @@ function portfolioView(slug, cfg) {
     trades: botState.trades,
     pendingTrades: botState.pendingTrades,
     buyLocks: botState._buyLocks,
-    dataAssurance: botState._dataAssurance || null,
+    dataAssurance: getDataAssuranceForState(),
   });
+}
+
+const SCAN_HARD_TIMEOUT_MS = 90_000;
+
+function recomputeDataAssurance() {
+  const prevBlocking = (botState._dataAssurance?.blocking || []).join(',');
+  const signalTs = Math.max(
+    Number(botState.signals?.btc?.timestamp || 0),
+    Number(botState.signals?.eth?.timestamp || 0),
+  );
+  const markets = (botState.markets || []).filter((m) => m.isCurrent);
+  botState._dataAssurance = buildDataAssurance({
+    spotPrices: botState.spotPrices,
+    signals: botState.signals,
+    feed: { status: signalTs ? 'live' : 'stale', lastSignalAt: signalTs || null },
+    markets: markets.map((m) => ({
+      symbol: m.symbol,
+      slug: m.slug,
+      isCurrent: m.isCurrent,
+      prices: m.gammaPrices || m.prices || {},
+      priceToBeat: m.priceToBeat,
+      eventStartTime: m.eventStartTime,
+      endTime: m.endTime,
+    })),
+    positions: botState.positions,
+    cashAudit: {
+      ok: true,
+      cash: botState.config.paperBankroll,
+      equity: botState.config.paperBankroll,
+      issues: [],
+    },
+    priceToBeat: Object.fromEntries(
+      markets
+        .filter((m) => m.priceToBeat != null)
+        .map((m) => [String(m.symbol).toLowerCase(), { openPrice: m.priceToBeat }]),
+    ),
+    lastScan: botState.lastScan,
+    botRunning: botState.running,
+    forceArbOnly: botState.config?.forceArbOnly === true,
+    assets: botState.config?.assets,
+  });
+  const nextBlocking = (botState._dataAssurance?.blocking || []).join(',');
+  if (prevBlocking !== nextBlocking) {
+    emitEvent('data.assurance', {
+      level: botState._dataAssurance.canBuy ? 'ok' : 'error',
+      canBuy: botState._dataAssurance.canBuy,
+      blocking: botState._dataAssurance.blocking,
+      warnings: botState._dataAssurance.warnings,
+      score: botState._dataAssurance.score,
+      note: botState._dataAssurance.note,
+    });
+  }
+  return botState._dataAssurance;
+}
+
+/** Refresh stale assurance when positions changed outside the scan loop. */
+function getDataAssuranceForState() {
+  const assurance = botState._dataAssurance;
+  const openPaper = (botState.positions || []).filter((p) => !p?.closed && p?.mode === 'paper');
+  const staleOrphan = assurance?.blocking?.includes('orphan_paper') && openPaper.length === 0;
+  const staleScan = assurance?.blocking?.includes('scan_fresh')
+    && botState.lastScan != null
+    && (Date.now() - Number(botState.lastScan)) > 60_000;
+  if (staleOrphan || staleScan || !assurance) {
+    return recomputeDataAssurance();
+  }
+  return assurance;
 }
 
 function prunePendingTrades() {
@@ -738,13 +872,13 @@ function announceTrade(plan, market, outcome) {
     type: 'trade_intent',
     time: Date.now(),
     title: `READY ${market.symbol} ${outcome.toUpperCase()}`,
-    msg: `${market.symbol} ${outcome.toUpperCase()} @ $${plan.entryPrice.toFixed(3)} · size $${plan.costEst} (~${plan.shares} sh) · TP +${plan.targetTp}% → $${plan.tpPrice.toFixed(3)} (+$${plan.tpPnl}) · SL -${plan.slPct}% → $${plan.slPrice.toFixed(3)} ($${plan.slPnl}) · ${plan.remaining}s left`,
+    msg: `${market.symbol} ${outcome.toUpperCase()} @ $${plan.entryPrice.toFixed(3)} · size $${plan.costEst} (~${plan.shares} sh) · ${planExitLog(plan)} · ${plan.remaining}s left`,
     plan,
   });
   if (botState.announcements.length > 50) botState.announcements.length = 50;
 
   log(
-    `📣 ANNOUNCE ${market.symbol} ${outcome.toUpperCase()} @ $${plan.entryPrice.toFixed(3)} · $${plan.costEst} · TP +${plan.targetTp}% ($${plan.tpPrice.toFixed(3)}) · SL -${plan.slPct}% ($${plan.slPrice.toFixed(3)}) · approve in ${timeoutSec}s`,
+    `📣 ANNOUNCE ${market.symbol} ${outcome.toUpperCase()} @ $${plan.entryPrice.toFixed(3)} · $${plan.costEst} · ${planExitLog(plan)} · approve in ${timeoutSec}s`,
     'announce',
     { id, ...plan, slug: market.slug, outcome },
   );
@@ -840,25 +974,41 @@ async function executePendingTrade(pending) {
       const capUsd = plan.isArbLeg
         ? Number(cfg.arbMaxUsd ?? 25)
         : Number(cfg.maxPositionCap ?? cfg.maxPositionSize ?? 14);
-      if (realCost > Math.max(capUsd * 1.6, 4.5)) {
+      if (realCost > Math.max(capUsd * 1.6, 4.5) && !plan.isArbLeg) {
         pending.status = 'failed';
         botState._buyLocks.delete(pending.slug);
         log(`⛔ LIVE SKIP ${pending.symbol} — min order $${realCost.toFixed(2)} (${minSh} sh @ $${entryPx}) blows cap $${capUsd}`, 'error');
         return { ok: false, error: 'min order exceeds risk cap' };
       }
+      if (plan.isArbLeg && realCost > Math.max(capUsd * 1.05, Number(cfg.minPositionSize || 0.5))) {
+        // Arb sized to arbMaxUsd already — only refuse clear overshoots (no 1.6× / $4.5 floor)
+        pending.status = 'failed';
+        botState._buyLocks.delete(pending.slug);
+        log(`⛔ LIVE ARB SKIP ${pending.symbol} — leg $${realCost.toFixed(2)} > arb cap $${capUsd}`, 'error');
+        return { ok: false, error: 'arb leg exceeds arbMaxUsd' };
+      }
       log(`🛰️ LIVE ORDER SUBMIT ${pending.symbol} ${pending.outcome.toUpperCase()} @ $${entryPx.toFixed(3)}`, 'signal', {
         market: pending.symbol, slug: pending.slug, outcome: pending.outcome,
         amount: plan.sizeUsd, price: entryPx, announceId: pending.id,
       });
-      const orderResult = await placeOrder({
-        tokenId: pending.tokenId,
-        side: 'buy',
-        amountUsd: plan.sizeUsd,
-        price: entryPx,
-        negRisk: pending.negRisk,
-        tickSize: pending.tickSize || '0.01',
-        minShares: pending.minShares || 5,
-      });
+      const orderResult = plan.isArbLeg
+        ? await placeMarketBuy({
+          tokenId: pending.tokenId,
+          amountUsd: plan.sizeUsd,
+          maxPrice: entryPx,
+          negRisk: pending.negRisk,
+          tickSize: pending.tickSize || '0.01',
+          minShares: pending.minShares || 5,
+        })
+        : await placeOrder({
+          tokenId: pending.tokenId,
+          side: 'buy',
+          amountUsd: plan.sizeUsd,
+          price: entryPx,
+          negRisk: pending.negRisk,
+          tickSize: pending.tickSize || '0.01',
+          minShares: pending.minShares || 5,
+        });
       pos.orderId = orderResult.id;
       pos.shares = orderResult.size;
       pos.entryPrice = orderResult.price;
@@ -885,6 +1035,13 @@ async function executePendingTrade(pending) {
     } catch (err) {
       pending.status = 'failed';
       botState._buyLocks.delete(pending.slug);
+      if (err?.code === 'UNVERIFIED_FILL') {
+        // Order accepted but fill unproven — do not abandon silently.
+        log(`⚠️ LIVE BUY UNVERIFIED FILL ${pending.symbol}: ${err.message.slice(0, 160)}`, 'error', {
+          market: pending.symbol, slug: pending.slug, outcome: pending.outcome, code: err.code, orderId: err.orderId,
+        });
+        return { ok: false, error: err.message, code: 'UNVERIFIED_FILL', orderId: err.orderId };
+      }
       log(`❌ LIVE BUY FAILED ${pending.symbol}: ${err.message.slice(0, 160)}`, 'error', {
         market: pending.symbol, slug: pending.slug, outcome: pending.outcome,
       });
@@ -906,7 +1063,7 @@ async function executePendingTrade(pending) {
     pos.costBasis = premium;
     const debit = Math.round((premium + entryFee) * 100) / 100;
     adjustPaperCash(-debit, `BUY ${pending.symbol} ${pending.outcome?.toUpperCase()} @ ${entryPx.toFixed(3)}`);
-    log(`✅ PAPER BUY ${pending.symbol} ${pending.outcome.toUpperCase()} @ $${entryPx.toFixed(3)} · $${premium.toFixed(2)} + fee $${entryFee.toFixed(4)} · TP +${plan.targetTp}% · SL -${plan.slPct}%`, 'buy', {
+    log(`✅ PAPER BUY ${pending.symbol} ${pending.outcome.toUpperCase()} @ $${entryPx.toFixed(3)} · $${premium.toFixed(2)} + fee $${entryFee.toFixed(4)} · ${planExitLog(plan)}`, 'buy', {
       market: pending.symbol, slug: pending.slug, outcome: pending.outcome,
       amount: plan.sizeUsd, price: entryPx, targetTp: plan.targetTp, tpPrice: plan.tpPrice, slPrice: plan.slPrice,
       entryFee,
@@ -1180,6 +1337,49 @@ function resolveSlFillPrice(pos, markBid, effectiveSl, cfg) {
   return Math.round(Math.max(0.01, mark || floor) * 1000) / 1000;
 }
 
+/**
+ * Book a paper exit: fee, realised P/L, and the cash credit.
+ *
+ * This logic existed inline in `closePosition` only, and three other exit paths
+ * closed positions without it — `scanOpenExitsFast`, the pre-entry stop-loss
+ * sweep, and the drawdown close. All of them credited the raw premium with
+ * `adjustPaperCash(shares * fill)`, so they never charged the taker fee on the
+ * way out and never set `exitFee`.
+ *
+ * Measured 2026-08-31: all 16 stop-loss exits recorded zero exit fee while
+ * every take-profit recorded one, because take-profit has no shortcut path and
+ * always reaches `closePosition`. Paper equity was overstated by the whole of
+ * that missing fee, and — because the incremental ledger and `reconcile` both
+ * omitted it identically — the reconciler could not see the error either. A
+ * silent, one-directional overstatement on losing trades specifically is the
+ * worst shape this bug could have taken: it flatters exactly the trades whose
+ * true cost we most need to measure.
+ *
+ * Extracted rather than copied a fourth time, since duplication is what let the
+ * paths drift apart to begin with.
+ */
+async function bookPaperExit(pos, sellShares, fillPrice, exitReason, cfg) {
+  const feeOn = cfg.simulateClobFees !== false;
+  const useClob = cfg.useClobMarketFees !== false;
+  const feeCat = cfg.feeCategory || 'crypto';
+  const gross = Math.round(sellShares * fillPrice * 100) / 100;
+  const pack = !feeOn
+    ? { premium: gross, fee: 0, net: gross }
+    : (useClob && pos.tokenId)
+      ? await closeProceedsWithFeeForToken(sellShares, fillPrice, pos.tokenId, exitReason, feeCat)
+      : closeProceedsWithFee(sellShares, fillPrice, feeCat, exitReason);
+
+  const entryFeeAlloc = Number(pos.entryFee || 0);
+  pos.exitFee = pack.fee;
+  pos.feesPaid = Math.round((entryFeeAlloc + pack.fee) * 1e5) / 1e5;
+  pos.pnl = Math.round(((fillPrice - pos.entryPrice) * sellShares - entryFeeAlloc - pack.fee) * 100) / 100;
+  adjustPaperCash(
+    pack.net,
+    `${String(exitReason).toUpperCase()}${isFeeFreeExit(exitReason) ? ' (redeem)' : ''} ${pos.symbol} ${pos.outcome?.toUpperCase()}`,
+  );
+  return pack;
+}
+
 function summarizeBook(depth) {
   if (!depth) return null;
   const side = (d) => (d ? {
@@ -1318,8 +1518,7 @@ function summarizeMarketDecision({ market, remaining, selectedCandidate, candida
       summary: `ANNOUNCE ${market.symbol} ${announced.outcome.toUpperCase()} — await approve`,
       trace: [
         `entry $${announced.plan?.entryPrice?.toFixed(3)}`,
-        `TP +${announced.plan?.targetTp}% → $${announced.plan?.tpPrice?.toFixed(3)}`,
-        `SL -${announced.plan?.slPct}% → $${announced.plan?.slPrice?.toFixed(3)}`,
+        ...planExitTrace(announced.plan || {}),
       ],
     };
   }
@@ -1583,7 +1782,7 @@ export function getState(opts = {}) {
       msgCount: clobWs.msgCount,
       lastMsgAgeMs: clobWs.lastMsgAgeMs,
     },
-    dataAssurance: botState._dataAssurance || null,
+    dataAssurance: getDataAssuranceForState(),
     mlTraces: {
       btc: getPriceTrace('btc'),
       eth: getPriceTrace('eth'),
@@ -1598,6 +1797,31 @@ export function getState(opts = {}) {
     // from arbHousekeeping() in the scan loop, where it belongs.
     packages: loadPackages().filter((p) => p.mode === mode),
     arbMetrics: getArbPackageMetrics(mode, botState.trades),
+    arbSurfaces: lean
+      ? Object.fromEntries(
+        Object.entries(botState._arbSurfaces || {})
+          .slice(0, 8)
+          .map(([k, v]) => [k, {
+            bestStage: v.bestStage,
+            askGap: v.touchAskGap,
+            bidPremium: v.touchBidPremium,
+            s1: v.stage1Ask?.actionable,
+            s2: v.stage2Bid?.actionable,
+            up: v.up,
+            down: v.down,
+            gates: v.gates
+              ? {
+                phase: v.gates.phase,
+                minGap: v.gates.minGap,
+                minLockedUsd: v.gates.minLockedUsd,
+                reason: v.gates.reason,
+              }
+              : null,
+            at: v.at,
+            symbol: v.symbol,
+          }]),
+      )
+      : (botState._arbSurfaces || {}),
     // Per-engine capacity, so "why didn't it trade?" is answerable without
     // reading the code (objective 1). The two budgets are independent (D5):
     // directional slots are the risk dial, arb capacity is a package count.
@@ -1660,7 +1884,7 @@ export function getState(opts = {}) {
     narrative,
     liveScoreCards,
     account,
-    dataAssurance: botState._dataAssurance || null,
+    dataAssurance: getDataAssuranceForState(),
     session: sessionSnapshot,
     sessionHistory: botState.sessionHistory.slice(0, lean ? 5 : 30),
     sessionLedger: lean
@@ -1731,6 +1955,9 @@ export function getState(opts = {}) {
     slots: stateCore.slots,
     settingWriters: stateCore.settingWriters,
     settingChanges: stateCore.settingChanges,
+    packages: stateCore.packages,
+    arbMetrics: stateCore.arbMetrics,
+    arbSurfaces: stateCore.arbSurfaces,
     telemetry: {
       uptime: botState.running ? Math.floor((Date.now() - botState._startTime) / 1000) : 0,
       uptimeMs: botState.running ? Date.now() - botState._startTime : 0,
@@ -1862,7 +2089,7 @@ export async function governorNow({ useLlm = true } = {}) {
     signals: botState.signals,
     portfolio: buildPortfolio(botState.readiness, botState.config.mode || 'paper'),
     trades: botState.trades,
-    saveConfig: (patch) => saveConfig(patch, { tier: 'automation', source: 'governor' }),
+    saveConfig: (patch, meta) => saveConfig(patch, meta || { tier: 'automation', source: 'governor' }),
     log,
     useLlm: useLlm && botState.config.llmOptimize !== false,
   });
@@ -1958,7 +2185,7 @@ async function scanOpenExitsFast() {
       pos.closed = true;
       pos.exitReason = 'sl';
       if (pos.mode === 'paper') {
-        adjustPaperCash(Math.round(sellShares * fillPrice * 100) / 100, `SL ${pos.symbol} ${pos.outcome?.toUpperCase()}`);
+        await bookPaperExit(pos, sellShares, fillPrice, 'sl', cfg);
       }
       saveTrade({
         ...pos,
@@ -1990,6 +2217,12 @@ export async function scan() {
     return;
   }
   botState._scanning = true;
+  const scanWatchdog = setTimeout(() => {
+    if (botState._scanning) {
+      log('⚠️ Scan watchdog timeout — releasing scan lock', 'error');
+      botState._scanning = false;
+    }
+  }, SCAN_HARD_TIMEOUT_MS);
 
   try {
     maybeFinalizeCycle();
@@ -2009,14 +2242,25 @@ export async function scan() {
       log,
     });
 
-    const { markets, diagnostics } = await findMarkets(resolveMarketDurations(cfg));
+    let { markets, diagnostics } = await findMarkets(resolveMarketDurations(cfg));
+    let tradableMarkets = selectTradableMarkets(markets, cfg);
+    if (tradableMarkets.length === 0 && markets.length > 0) {
+      ({ markets, diagnostics } = await findMarkets(resolveMarketDurations(cfg), { force: true }));
+      tradableMarkets = selectTradableMarkets(markets, cfg);
+    }
+    if (tradableMarkets.length === 0 && markets.length > 0) {
+      log(
+        `🧯 0 tradable mkts — discovered ${markets.length} (next-only?) · ${markets.map((m) => m.slug).join(', ')}`,
+        'error',
+        { diagnostics },
+      );
+    }
     botState.diagnostics = diagnostics;
-    const tradableMarkets = cfg.tradeCurrentWindowOnly ? markets.filter((market) => market.isCurrent) : markets;
     const enriched = [];
     let signalsFound = 0;
 
     if (markets.length === 0) {
-      log(`🧯 Discovery miss — 0 BTC/ETH markets`, 'error', { diagnostics });
+      log(`🧯 Discovery miss — 0 markets · Gamma crypto up/down is 5m/15m/4h (BTC/ETH/SOL/XRP/DOGE) — check enabledDurations + assets`, 'error', { diagnostics });
     } else if (diagnostics.length > 0) {
       log(`🧭 Discovery partial — ${markets.length} live · ${diagnostics.length} missing`, 'scan', { diagnostics });
     }
@@ -2031,7 +2275,7 @@ export async function scan() {
         try {
           const result = await executeSell(pos, 'settle');
           if (result?.ok) {
-            const pnlTxt = `${(pos.pnl || 0) >= 0 ? '+' : ''}$${Math.abs(pos.pnl || 0).toFixed(2)}`;
+            const pnlTxt = signedUsd(pos.pnl);
             log(
               `🏁 PAPER ORPHAN SETTLE ${pos.symbol} ${String(pos.outcome || '').toUpperCase()} · ${pnlTxt} · ${pos.slug}`,
               (pos.pnl || 0) >= 0 ? 'tp' : 'sl',
@@ -2073,6 +2317,8 @@ export async function scan() {
       },
       lastScan: botState.lastScan,
       botRunning: true,
+      forceArbOnly: cfg.forceArbOnly === true,
+      assets: cfg.assets,
     });
     if (!botState._dataAssurance.canBuy && cfg.requireDataAssurance !== false) {
       log(`🛡️ DATA GATE · ${botState._dataAssurance.note}`, 'scan', {
@@ -2081,19 +2327,37 @@ export async function scan() {
       });
     }
 
-    for (const market of tradableMarkets) {
+    const minHuntGap = Number(cfg.minArbGap ?? 0.005);
+    const orderedMarkets = [...tradableMarkets].sort((a, b) => {
+      const ha = peekArbHuntForMarket(a, { minGap: minHuntGap });
+      const hb = peekArbHuntForMarket(b, { minGap: minHuntGap });
+      if (ha && !hb) return -1;
+      if (!ha && hb) return 1;
+      return (hb?.gap || 0) - (ha?.gap || 0);
+    });
+
+    for (const market of orderedMarkets) {
       if (!cfg.assets.includes(market.symbol)) continue;
+      // Consume hunt mark once we actually process this market.
+      takeArbHuntForMarket(market, { minGap: minHuntGap });
       const prices = await getPricesForMarket(market);
       recordChartTick(market.slug, prices);
       const hasOpenHere = botState.positions.some(
         (p) => !p.closed && p.slug === market.slug && p.symbol === market.symbol
       );
-      // Always pull depth when we have opens — SL must mark on bid, not mid
-      const depth = (cfg.useOrderBookBias !== false || hasOpenHere)
+      // Always pull depth for arb (and when opens need bid marks for SL).
+      const needDepth = cfg.clobArbEnabled !== false
+        || cfg.useOrderBookBias !== false
+        || hasOpenHere;
+      const depth = needDepth
         ? await getDepthForMarket(market).catch(() => null)
         : null;
+      if (depth && market.slug) {
+        botState._depthBySlug = botState._depthBySlug || {};
+        botState._depthBySlug[market.slug] = depth;
+      }
       const sym = String(market.symbol).toLowerCase();
-      if (depth && ['btc', 'eth'].includes(sym)) {
+      if (depth && ['btc', 'eth', 'sol', 'xrp', 'doge'].includes(sym)) {
         botState.booksForFusion = botState.booksForFusion || {};
         botState.booksForFusion[sym] = {
           bestBid: depth.up?.bestBid ?? depth.down?.bestBid ?? null,
@@ -2101,6 +2365,49 @@ export async function scan() {
           imbalance: (depth.up?.imbalance ?? depth.down?.imbalance) ?? null,
           spreadPct: (depth.up?.spreadPct ?? depth.down?.spreadPct) ?? null,
         };
+      }
+
+      // Two-stage book surfaces: ask-sum + bid-sum + per-leg spreads
+      if (depth && cfg.clobArbEnabled !== false) {
+        const feeParams = (cfg.useClobMarketFees !== false && peekClobFeeParams(market.tokenIds?.up))
+          || (cfg.feeCategory || 'crypto');
+        const remForGates = market.endTime
+          ? Math.max(0, (Number(market.endTime) * 1000 - Date.now()) / 1000)
+          : remaining;
+        const touchUp = Number(depth?.up?.bestAsk || prices?.up || 0);
+        const touchDown = Number(depth?.down?.bestAsk || prices?.down || 0);
+        const touchBidUp = Number(depth?.up?.bestBid || 0);
+        const touchBidDown = Number(depth?.down?.bestBid || 0);
+        const gates = resolveArbGates(cfg, {
+          remainingSec: remForGates,
+          touchGap: touchUp && touchDown ? 1 - touchUp - touchDown : undefined,
+          touchBidPremium: touchBidUp && touchBidDown ? touchBidUp + touchBidDown - 1 : undefined,
+        });
+        const surfaces = evaluateArbSurfaces(depth, prices, feeParams, {
+          minGap: gates.minGap,
+          marginPct: gates.marginPct,
+          minBidPremium: gates.minGap,
+        });
+        botState._arbSurfaces = botState._arbSurfaces || {};
+        botState._arbSurfaces[market.slug] = {
+          ...surfaces,
+          gates,
+          at: Date.now(),
+          symbol: market.symbol,
+        };
+        const now = Date.now();
+        if (
+          (surfaces.stage1Ask.actionable || surfaces.stage2Bid.actionable)
+          && now - (botState._arbSurfaceLoggedAt?.[market.slug] || 0) > 15_000
+        ) {
+          botState._arbSurfaceLoggedAt = botState._arbSurfaceLoggedAt || {};
+          botState._arbSurfaceLoggedAt[market.slug] = now;
+          log(
+            `📐 ARB SURFACES ${market.symbol} askΣ=${surfaces.stage1Ask.sum?.toFixed?.(3) ?? '—'} gap=${((surfaces.stage1Ask.gap || 0) * 100).toFixed(2)}%${surfaces.stage1Ask.actionable ? ' ✓S1' : ''} · bidΣ=${surfaces.stage2Bid.sum?.toFixed?.(3) ?? '—'} prem=${((surfaces.stage2Bid.premium || 0) * 100).toFixed(2)}%${surfaces.stage2Bid.actionable ? ' ✓S2' : ''} · UP ${surfaces.up.bid?.toFixed?.(3) ?? '—'}/${surfaces.up.ask?.toFixed?.(3) ?? '—'} DN ${surfaces.down.bid?.toFixed?.(3) ?? '—'}/${surfaces.down.ask?.toFixed?.(3) ?? '—'}`,
+            'scan',
+            { slug: market.slug, surfaces },
+          );
+        }
       }
       const remainingMs = market.endTime
         ? Math.max(0, market.endTime * 1000 - Date.now())
@@ -2195,7 +2502,7 @@ export async function scan() {
           openPos.closed = true;
           openPos.exitReason = 'sl';
           if (openPos.mode === 'paper') {
-            adjustPaperCash(Math.round(sellShares * fillPrice * 100) / 100, `SL ${openPos.symbol} ${openPos.outcome?.toUpperCase()}`);
+            await bookPaperExit(openPos, sellShares, fillPrice, 'sl', cfg);
           }
           saveTrade({
             ...openPos,
@@ -2242,11 +2549,21 @@ export async function scan() {
         edgeState: edgeGateNow,
         governorDecision: getGovernorStatus(),
       });
-      const isArbOnlyMode = tradingPerms.arbOnly;
+      // A failing signal check means the directional inputs are not trustworthy,
+      // so the honest response is to stop expressing a directional view rather
+      // than trade on a number we know is wrong. Arb reads none of this and
+      // stays valid, so degrading there loses the least.
+      const health = getSignalHealth();
+      if (!health.directionalTrustworthy && !cfg.forceArbOnly && Date.now() - (botState._signalHealthLoggedAt || 0) > 300_000) {
+        botState._signalHealthLoggedAt = Date.now();
+        const failed = health.checks.filter((c) => c.status === 'fail').map((c) => c.message).join(' · ');
+        log(`🩺 Signal health FAIL → directional suspended, arb only — ${failed}`, 'error', { signalHealth: health });
+      }
+      const isArbOnlyMode = tradingPerms.arbOnly || !health.directionalTrustworthy;
 
-      // Atomic Arb Engine Execution: Execute ArbPackage and bypass directional evaluation when arb-only mode or gap is active
-      if (cfg.clobArbEnabled !== false && (isArbOnlyMode || arb)) {
-        const pkg = await detectAndExecuteArbPackage({
+      // Scan every market for fee-positive arb — multi-fill up to maxArbPerSlug.
+      if (cfg.clobArbEnabled !== false) {
+        const pkgs = await detectAndExecuteArbPackages({
           market,
           depth,
           prices,
@@ -2260,9 +2577,28 @@ export async function scan() {
           botState,
         });
 
-        if (pkg && pkg.status === 'LOCKED') {
-          signalsFound += 1;
+        if (pkgs.length) {
+          signalsFound += pkgs.length;
           action = 'arb';
+        }
+
+        // Stage 2: reverse bid-sum (mint → dual sell) when enabled
+        if (cfg.arbReverseEnabled !== false) {
+          const rev = await detectAndExecuteReverseBidPackage({
+            market,
+            depth,
+            prices,
+            cfg,
+            mode: cfg.mode || 'paper',
+            log,
+            adjustPaperCash,
+            saveTrade,
+            botState,
+          });
+          if (rev) {
+            signalsFound += 1;
+            action = 'arb_rev';
+          }
         }
       }
 
@@ -2270,6 +2606,33 @@ export async function scan() {
       if (isArbOnlyMode) {
         continue;
       }
+
+      /**
+       * P(this window settles above its strike), computed once per market.
+       *
+       * Both operands have been available on every scan for as long as
+       * `fetchPriceToBeat` has existed — `market.priceToBeat` is the strike and
+       * `signal.price` is spot — and nothing downstream compared them. Prefer
+       * the oracle's own `closePrice` for spot when it is present, since that is
+       * the series the market actually resolves against; `signal.price` is a
+       * different feed and can disagree by a few dollars, which matters when the
+       * whole edge is a small difference between two large numbers.
+       */
+      const strikeForecast = (() => {
+        const strike = Number(market.priceToBeat);
+        if (!(strike > 0) || !signal) return null;
+        const oracleSpot = Number(market.priceToBeatMeta?.closePrice);
+        const spot = oracleSpot > 0 ? oracleSpot : Number(signal.price);
+        const volPerMinute = volPerMinuteFromSignal(signal);
+        if (!(spot > 0) || !volPerMinute) return null;
+        return forecastAboveStrike({
+          spot,
+          strike,
+          secondsRemaining: remaining,
+          volPerMinute,
+          spotAgeMs: signal.timestamp ? Date.now() - Number(signal.timestamp) : 0,
+        });
+      })();
 
       for (const outcome of targetOutcomes) {
         const depthSide = depth?.[outcome];
@@ -2292,6 +2655,7 @@ export async function scan() {
           depth,
           prices,
           portfolio: portfolioView(market.slug, cfg),
+          forecast: strikeForecast,
         });
 
         candidates.push(candidate);
@@ -2405,7 +2769,7 @@ export async function scan() {
             minShares: market.minShares || 5,
             plan,
           };
-          log(`📡 AUTO ${market.symbol} ${buyOutcome.toUpperCase()} @ $${buyPrice.toFixed(3)} · $${plan.costEst} · TP +${plan.targetTp}% · SL -${plan.slPct}%`, 'signal', {
+          log(`📡 AUTO ${market.symbol} ${buyOutcome.toUpperCase()} @ $${buyPrice.toFixed(3)} · $${plan.costEst} · ${planExitLog(plan)}`, 'signal', {
             market: market.symbol, slug: market.slug, outcome: buyOutcome, ...plan,
           });
           await executePendingTrade(pending);
@@ -2639,19 +3003,7 @@ export async function scan() {
           pos.exitReason = exitReason;
           pos.pendingRedeem = false;
           if (pos.mode === 'paper') {
-            const feeOn = cfg.simulateClobFees !== false;
-            const useClob = cfg.useClobMarketFees !== false;
-            const feeCat = cfg.feeCategory || 'crypto';
-            const pack = !feeOn
-              ? { premium: Math.round(sellShares * fillPrice * 100) / 100, fee: 0, net: Math.round(sellShares * fillPrice * 100) / 100 }
-              : (useClob && pos.tokenId)
-                ? await closeProceedsWithFeeForToken(sellShares, fillPrice, pos.tokenId, exitReason, feeCat)
-                : closeProceedsWithFee(sellShares, fillPrice, feeCat, exitReason);
-            const entryFeeAlloc = Number(pos.entryFee || 0);
-            pos.exitFee = pack.fee;
-            pos.feesPaid = Math.round((entryFeeAlloc + pack.fee) * 1e5) / 1e5;
-            pos.pnl = Math.round(((fillPrice - pos.entryPrice) * sellShares - entryFeeAlloc - pack.fee) * 100) / 100;
-            adjustPaperCash(pack.net, `${exitReason.toUpperCase()}${isFeeFreeExit(exitReason) ? ' (redeem)' : ''} ${pos.symbol} ${pos.outcome?.toUpperCase()}`);
+            await bookPaperExit(pos, sellShares, fillPrice, exitReason, cfg);
             recordTradeSample({
               asset: pos.symbol,
               slug: pos.slug,
@@ -2717,7 +3069,7 @@ export async function scan() {
         if (remainingFromMarket <= 0 || (remainingFromMarket <= 8 && (price <= 0.02 || price >= 0.98))) {
           const settleReason = 'settle';
           await closePosition(settleReason);
-          const pnlTxt = `${(pos.pnl || 0) >= 0 ? '+' : ''}$${Math.abs(pos.pnl || 0).toFixed(2)}`;
+          const pnlTxt = signedUsd(pos.pnl);
           log(`🏁 ${pos.mode === 'live' ? 'LIVE' : 'PAPER'} SETTLE ${pos.symbol} ${pos.outcome.toUpperCase()} · ${pnlTxt} (${gainPct.toFixed(1)}%) · window ${win.key}`, gainPct >= 0 ? 'tp' : 'sl', {
             market: pos.symbol, slug: pos.slug, outcome: pos.outcome,
             entryPrice: pos.entryPrice, exitPrice: pos.exitPrice || price, gainPct, pnl: pos.pnl, shares: positionShares(pos),
@@ -2796,7 +3148,12 @@ export async function scan() {
         const tpPctHit = tpGain >= Number(pos.targetTp || 999);
         const tpPriceHit = pos.tpPrice > 0 && tpMark >= Number(pos.tpPrice) * 0.998;
         if (tpPctHit || tpPriceHit) {
-          if (await closePosition('tp', { tpPctHit, tpPriceHit, fillPrice: tpMark }) === false) continue;
+          // Trigger on the ask (a sticky bid otherwise hides a real move), but
+          // fill on the bid — selling into the ask is the wrong side of the
+          // book and booked a full spread of profit that no seller could get.
+          // Omitting fillPrice lets closePosition mark at the bid, which is
+          // what the trailing and partial exits already do.
+          if (await closePosition('tp', { tpPctHit, tpPriceHit }) === false) continue;
           log(`💰 ${pos.mode === 'live' ? 'LIVE' : 'PAPER'} TP ${pos.symbol} ${pos.outcome.toUpperCase()} · +$${pos.pnl.toFixed(2)} (+${pos.gainPct.toFixed(1)}%)`, 'tp', {
             market: pos.symbol, slug: pos.slug, outcome: pos.outcome,
             entryPrice: pos.entryPrice, exitPrice: pos.exitPrice || tpMark, gainPct: pos.gainPct, pnl: pos.pnl, shares: positionShares(pos),
@@ -2892,10 +3249,11 @@ export async function scan() {
 
     botState.markets = [
       ...enriched,
-      ...markets.filter((market) => !market.isCurrent).map((market) => {
+      ...rehydrateMarketWindows(markets.filter((market) => !enriched.find((e) => e.slug === market.slug))).map((market) => {
         const nextRemainingMs = market.endTime
           ? Math.max(0, market.endTime * 1000 - Date.now())
           : getRemainingMs();
+        const open = isMarketWindowOpen(market);
         return {
         symbol: market.symbol,
         slug: market.slug,
@@ -2911,12 +3269,12 @@ export async function scan() {
         prices: market.gammaPrices || {},
         priceToBeat: market.priceToBeat ?? null,
         priceToBeatMeta: market.priceToBeatMeta || null,
-        action: 'watch',
-        isCurrent: false,
+        action: open ? 'scan' : 'watch',
+        isCurrent: open,
         decision: {
-          action: 'watch',
-          summary: `NEXT ${market.symbol} ${market.duration || ''} window`,
-          trace: [`next ${market.duration || '5m'} window — not trading yet`],
+          action: open ? 'scan' : 'watch',
+          summary: open ? `LIVE ${market.symbol} ${market.duration || ''}` : `NEXT ${market.symbol} ${market.duration || ''} window`,
+          trace: [open ? 'wall-clock open window' : `next ${market.duration || '5m'} window — not trading yet`],
         },
       };
       }),
@@ -2949,6 +3307,8 @@ export async function scan() {
       ),
       lastScan: botState.lastScan,
       botRunning: true,
+      forceArbOnly: botState.config?.forceArbOnly === true,
+      assets: botState.config?.assets,
     });
 
     updateBotTradeStats(botState);
@@ -2957,7 +3317,7 @@ export async function scan() {
 
     const buyCount = enriched.filter((market) => market.action === 'buy').length;
     logScan(
-      `🔎 Scan #${botState.stats.scansDone} — ${enriched.length} mkts · ${buyCount} buy signals · cycle ${formatRemainingMs()}`,
+      `🔎 Scan #${botState.stats.scansDone} — ${enriched.length} mkts · ${buyCount} buy signals · window ${formatRemainingMs()} left`,
       {
         scan: botState.stats.scansDone,
         markets: enriched.map((market) => ({
@@ -2973,6 +3333,7 @@ export async function scan() {
   } catch (err) {
     log(`⚠️ Scan error: ${err.message}`, 'error');
   } finally {
+    clearTimeout(scanWatchdog);
     botState._scanning = false;
   }
 }
@@ -2995,17 +3356,21 @@ async function fetchSpotTicker(symbol) {
 
 export async function refreshSpotPrices() {
   try {
-    const [btc, eth] = await Promise.all([
-      fetchSpotTicker('BTCUSDT'),
-      fetchSpotTicker('ETHUSDT'),
-    ]);
-    botState.spotPrices = {
-      btc: btc || botState.spotPrices.btc,
-      eth: eth || botState.spotPrices.eth,
-    };
-    // Also feed REST prices to spot history buffer (WS provides the real stream)
-    if (btc?.price) addSpotTick('btc', btc.price, btc.ts);
-    if (eth?.price) addSpotTick('eth', eth.price, eth.ts);
+    const wanted = Array.isArray(botState.config?.assets) && botState.config.assets.length
+      ? botState.config.assets.map((a) => String(a).toUpperCase())
+      : Object.keys(SPOT_SYMBOLS);
+    const pairs = wanted
+      .map((sym) => ({ sym, ticker: SPOT_SYMBOLS[sym] }))
+      .filter((p) => p.ticker);
+    const ticks = await Promise.all(pairs.map((p) => fetchSpotTicker(p.ticker)));
+    const next = { ...(botState.spotPrices || {}) };
+    pairs.forEach((p, i) => {
+      const tick = ticks[i];
+      const key = p.sym.toLowerCase();
+      if (tick) next[key] = tick;
+      if (tick?.price) addSpotTick(key, tick.price, tick.ts);
+    });
+    botState.spotPrices = next;
   } catch {}
   return botState.spotPrices;
 }
@@ -3644,6 +4009,8 @@ export function resetPaperData({ initialDeposit = 100 } = {}) {
   persistSync(FILES.POSITIONS, botState.positions);
   persistSync(FILES.ACTIONS, botState.actions);
   resetGovernorPeak('paper');
+  setGovernorAuto();
+  resetSignalHealth();
   saveConfig({ mode: 'paper', enabled: false, paperBankroll: amount, paperInitialDeposit: amount },
     { tier: 'operator', source: 'reset-paper' });
   refreshKellyHistory();
@@ -3788,6 +4155,7 @@ async function executeSell(pos, reason = 'manual') {
   }
   saveTrade({ ...pos, timestamp: Date.now(), orderId: pos.orderId });
   saveState();
+  if (pos.mode === 'paper') recomputeDataAssurance();
   try { await syncClobBalance(); await refreshTelemetry(); } catch {}
 
   log(`⚡ RAPID SELL ${pos.symbol} ${pos.outcome?.toUpperCase()} · ${reason} · PnL $${pos.pnl?.toFixed(2)}`, 'sl', {
@@ -3827,5 +4195,39 @@ export async function rapidSellPmAsset({ assetId, size }) {
 
 // Model state changes trigger SSE push
 onModelChange(() => notifyStateChange());
+
+export function setGovernorRegimeManual(regime) {
+  return setGovernorRegime(regime, {
+    saveConfig: (patch, meta) => saveConfig(patch, meta || { tier: 'operator', source: 'tune-regime' }),
+    config: botState.config,
+    log,
+    manual: true,
+  });
+}
+
+export function setGovernorRegimeAuto() {
+  return setGovernorAuto();
+}
+
+export function clearGovernorBreakerManual() {
+  const mode = botState.config.mode || 'paper';
+  return clearGovernorBreaker(mode, {
+    saveConfig: (patch, meta) => saveConfig(patch, meta || { tier: 'operator', source: 'clear-breaker' }),
+    log,
+  });
+}
+
+export function getObservability(opts = {}) {
+  const state = getState(opts);
+  const signalHealth = getSignalHealth();
+  const events = queryTelemetryEvents({
+    limit: Number(opts.eventLimit ?? 40),
+    since: opts.since ? Number(opts.since) : Date.now() - 3600_000,
+  });
+  return buildObservabilityBundle(state, signalHealth, {
+    sessionTarget: opts.sessionTarget,
+    telemetry: { recent: events },
+  });
+}
 
 export { queryTelemetryEvents, getLatestTelemetryEvent };

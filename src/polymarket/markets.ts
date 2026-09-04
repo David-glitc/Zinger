@@ -1,5 +1,103 @@
 // @ts-nocheck
-import { POLY, ASSETS, ALL_ASSETS, getCurrentSlug, getNextSlug, assetsForDurations, durationFromSlug, windowSecondsForDuration } from './config.js';
+import { POLY, ASSETS, ALL_ASSETS, getCurrentSlug, getNextSlug, getPreviousSlug, assetsForDurations, durationFromSlug, windowSecondsForDuration } from './config.js';
+import { isMarketWindowOpen, parseSlugWindow } from './windows.js';
+
+/** Gamma blocks bare fetch (403) — always send a UA. */
+const GAMMA_HEADERS = {
+  Accept: 'application/json',
+  'User-Agent': 'Zinger/1.1 (+https://zinger.kierkegaard.space)',
+};
+
+async function gammaFetch(url, { timeoutMs = 8000, ...opts } = {}) {
+  return fetch(url, {
+    ...opts,
+    headers: { ...GAMMA_HEADERS, ...(opts.headers || {}) },
+    signal: opts.signal || AbortSignal.timeout(timeoutMs),
+  });
+}
+
+/** Recompute isCurrent/isNext from UTC epoch slug — timezone-independent. */
+export function rehydrateMarketWindows(markets, nowMs = Date.now()) {
+  if (!Array.isArray(markets)) return [];
+  return markets.map((market) => {
+    const open = isMarketWindowOpen(market, nowMs);
+    const parsed = parseSlugWindow(market?.slug);
+    const nowSec = Math.floor(nowMs / 1000);
+    const isNext = parsed ? nowSec < parsed.startSec : false;
+    return {
+      ...market,
+      isCurrent: open,
+      isNext: isNext && !open,
+    };
+  });
+}
+
+/** Gamma discovery is expensive — cache between 250ms scan ticks. */
+const DISCOVERY_CACHE_MS = 5000;
+let discoveryCache = null;
+let lastDiscoveryWallBucket = null;
+
+function wallBucketSec(windowSec = 300, nowMs = Date.now()) {
+  const nowSec = Math.floor(nowMs / 1000);
+  return Math.floor(nowSec / windowSec) * windowSec;
+}
+
+function resolveScanAssets(opts = true) {
+  if (opts === false) return ASSETS;
+  if (Array.isArray(opts)) return assetsForDurations(opts);
+  if (opts && typeof opts === 'object') {
+    if (Array.isArray(opts.durations)) return assetsForDurations(opts.durations);
+    if (opts.include15m === false) return ASSETS;
+    return ALL_ASSETS;
+  }
+  return ALL_ASSETS;
+}
+
+/** Force-fetch wall-clock current slugs when discovery only returned NEXT windows. */
+async function ensureCurrentWindowMarkets(markets, scanAssets, diagnostics) {
+  const merged = [...markets];
+  for (const asset of scanAssets) {
+    const windowSec = asset.windowSeconds || 300;
+    const slug = getCurrentSlug(asset.slugPrefix, windowSec);
+    const open = merged.find((m) => m.slug === slug && isMarketWindowOpen(m));
+    if (open) continue;
+
+    const { raw, error } = await fetchMarketForSlug(slug, { retries: 3 });
+    if (!raw) {
+      diagnostics.push({
+        symbol: asset.symbol,
+        slug,
+        missing: true,
+        error: error?.message || 'current window fetch failed',
+      });
+      continue;
+    }
+
+    const normalized = normalizeMarket(raw, asset.symbol, slug, asset);
+    if (!normalized) {
+      diagnostics.push({
+        symbol: asset.symbol,
+        slug,
+        missing: true,
+        error: 'unparseable current window',
+      });
+      continue;
+    }
+
+    const idx = merged.findIndex((m) => m.slug === slug);
+    if (idx >= 0) merged[idx] = normalized;
+    else merged.push(normalized);
+  }
+  return merged;
+}
+
+/** Markets whose wall-clock window is open (UTC epoch slugs — same globally). */
+export function selectTradableMarkets(markets, cfg = {}) {
+  if (!Array.isArray(markets)) return [];
+  const hydrated = rehydrateMarketWindows(markets);
+  if (cfg.tradeCurrentWindowOnly === false) return hydrated;
+  return hydrated.filter((market) => isMarketWindowOpen(market));
+}
 
 function parseMaybeJson(value, fallback) {
   if (value == null) return fallback;
@@ -89,17 +187,31 @@ function normalizeMarket(raw, symbol, slug, assetHint = null) {
     duration,
     windowSeconds,
     isCurrent: (() => {
+      if (!assetObj || raw.closed) return false;
+      // Wall-clock window from slug epoch — ignore stale Gamma endTime so we don't
+      // drop the live bucket at boundaries (root cause of 0-mkt scans).
+      return isMarketWindowOpen({
+        symbol,
+        slug,
+        endTime,
+        windowSeconds,
+        closed: !!raw.closed,
+        acceptingOrders: raw.acceptingOrders !== false,
+      });
+    })(),
+    isNext: (() => {
       if (!assetObj) return false;
+      const parsed = parseSlugWindow(slug);
+      if (!parsed) return slug === getNextSlug(assetObj.slugPrefix, assetObj.windowSeconds);
       const nowSec = Math.floor(Date.now() / 1000);
-      if (raw.closed || (endTime != null && endTime <= nowSec)) return false;
-      return slug === getCurrentSlug(assetObj.slugPrefix, assetObj.windowSeconds);
+      return nowSec < parsed.startSec;
     })(),
   };
 }
 
 async function fetchMarketBySlug(slug) {
   const url = `${POLY.gammaApi}/events/slug/${slug}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res = await gammaFetch(url);
   if (!res.ok) return null;
   const data = await res.json();
   const market = data.markets?.[0];
@@ -109,27 +221,21 @@ async function fetchMarketBySlug(slug) {
 
 async function fetchMarketDirect(slug) {
   const url = `${POLY.gammaApi}/markets?slug=${encodeURIComponent(slug)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res = await gammaFetch(url);
   if (!res.ok) return null;
   const data = await res.json();
   return Array.isArray(data) ? data[0] : null;
 }
 
-async function discoverAssetMarkets(asset) {
-  const windowSec = asset.windowSeconds || 300;
-  const slugs = [getCurrentSlug(asset.slugPrefix, windowSec), getNextSlug(asset.slugPrefix, windowSec)];
-  const found = [];
-
-  for (const slug of slugs) {
-    let raw = null;
-    let error = null;
-
+async function fetchMarketForSlug(slug, { retries = 1 } = {}) {
+  let raw = null;
+  let error = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
       raw = await fetchMarketBySlug(slug);
     } catch (err) {
       error = err;
     }
-
     if (!raw) {
       try {
         raw = await fetchMarketDirect(slug);
@@ -137,6 +243,26 @@ async function discoverAssetMarkets(asset) {
         error = err;
       }
     }
+    if (raw || attempt >= retries) break;
+    await new Promise((resolve) => setTimeout(resolve, 180));
+  }
+  return { raw, error };
+}
+
+async function discoverAssetMarkets(asset) {
+  const windowSec = asset.windowSeconds || 300;
+  const currentSlug = getCurrentSlug(asset.slugPrefix, windowSec);
+  const slugSet = new Set([
+    getPreviousSlug(asset.slugPrefix, windowSec),
+    currentSlug,
+    getNextSlug(asset.slugPrefix, windowSec),
+  ]);
+  const slugs = [...slugSet];
+  const found = [];
+
+  for (const slug of slugs) {
+    const isCurrentSlug = slug === currentSlug;
+    const { raw, error } = await fetchMarketForSlug(slug, { retries: isCurrentSlug ? 3 : 1 });
 
     if (!raw) {
       found.push({
@@ -172,22 +298,22 @@ async function discoverAssetMarkets(asset) {
  *  - false → 5m only
  *  - string[] → explicit durations
  */
-export async function findMarkets(opts = true) {
+export async function findMarkets(opts = true, { force = false } = {}) {
+  const now = Date.now();
+  const wallBucket = wallBucketSec(300, now);
+  if (lastDiscoveryWallBucket != null && wallBucket !== lastDiscoveryWallBucket) {
+    force = true;
+    discoveryCache = null;
+  }
+  lastDiscoveryWallBucket = wallBucket;
+
+  if (!force && discoveryCache && (now - discoveryCache.at) < DISCOVERY_CACHE_MS) {
+    return discoveryCache.result;
+  }
+
   const markets = [];
   const diagnostics = [];
-
-  let scanAssets;
-  if (opts === false) {
-    scanAssets = ASSETS;
-  } else if (Array.isArray(opts)) {
-    scanAssets = assetsForDurations(opts);
-  } else if (opts && typeof opts === 'object') {
-    if (Array.isArray(opts.durations)) scanAssets = assetsForDurations(opts.durations);
-    else if (opts.include15m === false) scanAssets = ASSETS;
-    else scanAssets = ALL_ASSETS;
-  } else {
-    scanAssets = ALL_ASSETS;
-  }
+  const scanAssets = resolveScanAssets(opts);
 
   for (const asset of scanAssets) {
     const discovered = await discoverAssetMarkets(asset);
@@ -202,12 +328,26 @@ export async function findMarkets(opts = true) {
     }
   }
 
-  return { markets, diagnostics };
+  // Keep still-open cached markets when a rate-limited refresh only returned NEXT slugs.
+  if (discoveryCache?.result?.markets?.length) {
+    for (const cached of discoveryCache.result.markets) {
+      if (!isMarketWindowOpen(cached)) continue;
+      if (!markets.find((existing) => existing.slug === cached.slug)) {
+        markets.push(cached);
+      }
+    }
+  }
+
+  const withCurrent = await ensureCurrentWindowMarkets(markets, scanAssets, diagnostics);
+  const hydrated = rehydrateMarketWindows(withCurrent);
+  const result = { markets: hydrated, diagnostics };
+  discoveryCache = { at: now, result };
+  return result;
 }
 
 export async function searchMarkets(query = 'bitcoin up or down') {
   const url = `${POLY.gammaApi}/public-search?q=${encodeURIComponent(query)}&limit_per_type=10`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res = await gammaFetch(url);
   if (!res.ok) return [];
   const data = await res.json();
   return (data.events || []).flatMap((event) =>

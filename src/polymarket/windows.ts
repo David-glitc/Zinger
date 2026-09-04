@@ -29,7 +29,7 @@ export function parseSlugWindow(slug) {
   };
 }
 
-/** Active 5m wall bucket — matches Polymarket slug open time */
+/** Active 5m wall bucket — matches Polymarket slug open time (UTC epoch, global). */
 export function currentWallWindow(windowSec = POLY_WINDOW_SECONDS, nowMs = Date.now()) {
   const nowSec = Math.floor(nowMs / 1000);
   const startSec = Math.floor(nowSec / windowSec) * windowSec;
@@ -80,6 +80,13 @@ export function marketWindow(market, nowMs = Date.now()) {
   }
   const wall = currentWallWindow(POLY_WINDOW_SECONDS, nowMs);
   return { ...wall, asset: market?.symbol, slug: market?.slug, source: 'wall', isOpen: true };
+}
+
+/** True when wall-clock time is inside this market's open→end window (UTC epoch slugs). */
+export function isMarketWindowOpen(market, nowMs = Date.now()) {
+  if (!market || market.closed || market.acceptingOrders === false) return false;
+  const w = marketWindow(market, nowMs);
+  return w.isOpen === true;
 }
 
 export function windowKeyFromTrade(t) {

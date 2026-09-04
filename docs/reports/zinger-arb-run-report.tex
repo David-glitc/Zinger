@@ -1,0 +1,258 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+\definecolor{zingerblue}{HTML}{1E3A5F}
+\definecolor{zingeraccent}{HTML}{2563EB}
+\definecolor{zingerwarn}{HTML}{B45309}
+\definecolor{zingerok}{HTML}{047857}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=zingeraccent,
+  urlcolor=zingeraccent,
+  pdftitle={Zinger Arb-Only Run Report},
+  pdfauthor={Zinger Operator Session}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{zingerblue}{Zinger Arb Run Report}}
+\fancyhead[R]{\small\textcolor{gray}{2 September 2026, 18:42 UTC+1}}
+\fancyfoot[C]{\thepage}
+
+\titleformat{\section}{\large\bfseries\color{zingerblue}}{}{0em}{}[\titlerule]
+
+\title{\textbf{Zinger Arb-Only Experiment}\\[0.4em]
+\large 2-Month Backtest + Live Paper Session}
+\author{Operator run --- 2 Sep 2026}
+\date{2 September 2026, 18:42 UTC+1}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+This report documents an \textbf{arb-only} experiment on Zinger: a \textbf{2-month historical backtest} on synthetic Polymarket CLOB books (Jul--Sep 2026 spot data) and a \textbf{live paper reset} configured for \texttt{forceArbOnly} with loosened gap thresholds. Directional trading is disabled; the bot hunts fee-positive UP+DOWN packages only.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Executive Summary}
+%==============================================================================
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Experiment} & \textbf{Result} \\
+\midrule
+2mo arb-only backtest (\$10k) & \textbf{+\$39.82} (+0.40\%), 44 arb packages, 100\% WR, 0 reloads \\
+Live paper arb-only (reset \$1k) & \textbf{Running} --- session \texttt{session-mtkdu9ic}, \texttt{forceArbOnly: true} \\
+Directional trades (both) & \textbf{0} --- arb-only gate active \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Caveat:} The backtest uses \textbf{synthetic CLOB gaps} injected from Binance 1m spot (\texttt{bookSim.ts}), not recorded Polymarket order books. Live hit rate will differ. Treat +0.4\% over 2 months as a sanity check, not a forecast.
+
+%==============================================================================
+\section{2-Month Historical Backtest (Arb-Only)}
+%==============================================================================
+
+\subsection{Run Configuration}
+\begin{itemize}[noitemsep]
+  \item Command: \texttt{npx tsx scripts/historical-backtest.ts --months=2 --bankroll=10000 --reload=10000 --arb-only --no-fetch}
+  \item Period: $\sim$61 days (2026-07-03 $\rightarrow$ 2026-09-02)
+  \item Assets: BTC + ETH 1m candles (87{,}841 bars each, cached)
+  \item Starting bankroll: \$10{,}000; reload at \$0: \$10{,}000 (not triggered)
+  \item Engine: \texttt{forceArbOnly: true}, governor on, arb-only regime throughout
+  \item Initial arb knobs: \texttt{minArbGap} 0.6\%, \texttt{arbMinMarginPct} 0.3\%, \texttt{arbBankrollFrac} 18\%, \texttt{arbMaxUsd} \$100
+  \item Runtime: 63 seconds
+\end{itemize}
+
+\subsection{Results}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Final cash & \$10{,}039.81 \\
+Total P\&L & +\$39.82 (+0.40\%) \\
+Arb packages & 44 \\
+Directional trades & 0 \\
+Win rate & 100\% \\
+Fund reloads & 0 \\
+Windows scanned & 35{,}135 \\
+Scan ticks & 105{,}405 \\
+Arb hits (packages locked) & 44 \\
+Hit rate & $\sim$0.042\% of scan ticks \\
+\bottomrule
+\end{tabular}
+\caption{2-month arb-only backtest summary}
+\end{table}
+
+\subsection{Bayesian Tuning (In-Run)}
+After 25 arb packages at 100\% WR and +\$21 P\&L, the backtest loosened:
+\begin{itemize}[noitemsep]
+  \item \texttt{minArbGap}: 0.006 $\rightarrow$ 0.0055
+  \item \texttt{arbMinMarginPct}: 0.003 $\rightarrow$ 0.0027
+  \item \texttt{arbBankrollFrac}: 0.18 $\rightarrow$ 0.189
+\end{itemize}
+
+\subsection{Top Arb Strata (P\&L)}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Stratum} & \textbf{Packages} & \textbf{P\&L} \\
+\midrule
+arb\textbar BTC\textbar wide\textbar fair & 20 & +\$17 \\
+arb\textbar ETH\textbar wide\textbar fair & 8 & +\$8 \\
+arb\textbar BTC\textbar wide\textbar cheap & 6 & +\$10 \\
+arb\textbar BTC\textbar mid\textbar fair & 6 & +\$3 \\
+arb\textbar ETH\textbar mid\textbar fair & 4 & +\$2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Comparison to 6-Month Arb Backtest}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Run} & \textbf{Period} & \textbf{P\&L} & \textbf{Packages} \\
+\midrule
+6mo arb-only (1 Sep) & Mar--Sep 2026 & +\$60 (+0.60\%) & 74 \\
+2mo arb-only (this run) & Jul--Sep 2026 & +\$40 (+0.40\%) & 44 \\
+\bottomrule
+\end{tabular}
+\caption{Synthetic backtest comparison --- both arb-only, same engine}
+\end{table}
+
+\noindent
+\textbf{Saved JSON:} \texttt{data/backtest/backtest-2mo-arb-2026-09-02T17-40-53.json}
+
+%==============================================================================
+\section{Live Paper Arb-Only Session}
+%==============================================================================
+
+\subsection{What Was Done}
+\begin{enumerate}[noitemsep]
+  \item Hard paper reset to \textbf{\$1{,}000}
+  \item Applied \texttt{arbOnlyPaperStrategy()} profile (\texttt{modeConfig.ts})
+  \item Governor set to \texttt{arb-only} regime; DD breaker cleared
+  \item Bot started; observer attached (\texttt{--target=200}, 60s poll)
+\end{enumerate}
+
+\subsection{Live Configuration}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Knob} & \textbf{Value} \\
+\midrule
+\texttt{forceArbOnly} & \textbf{true} (no directional entries) \\
+\texttt{clobArbEnabled} & true \\
+\texttt{minArbGap} & 0.5\% \\
+\texttt{arbMinMarginPct} & 0.2\% \\
+\texttt{arbBankrollFrac} & 12\% \\
+\texttt{arbMaxUsd} & \$50 \\
+\texttt{maxArbPackages} & 6 \\
+\texttt{maxArbPerSlug} & 3 (stack up to 3 packages per 5m window) \\
+\texttt{maxOpenPositions} & 2 (directional cap irrelevant) \\
+\texttt{governorDrawdownPct} & 15\% \\
+\texttt{useML} / \texttt{useStrikeForecast} & false / false \\
+\bottomrule
+\end{tabular}
+\caption{Arb-only paper profile}
+\end{table}
+
+\subsection{Session Identity}
+\begin{itemize}[noitemsep]
+  \item Session ID: \texttt{session-mtkdu9ic}
+  \item Started: 2026-09-02 $\sim$17:41 UTC
+  \item Observer log: \texttt{data/session-observe-500.jsonl}
+  \item Human log: \texttt{logs/session-arb-observe.log}
+  \item Start script: \texttt{npm run session:arb}
+\end{itemize}
+
+\subsection{How Arb Works (Reminder)}
+\begin{enumerate}[noitemsep]
+  \item When $\text{ask}_{\text{UP}} + \text{ask}_{\text{DOWN}} < 1 - \text{fees} - \text{margin}$, buy equal shares of both legs
+  \item Walk both ask ladders (not touch-only)
+  \item Hold to settlement; package net P\&L is locked at entry
+  \item Individual legs show large win/loss at settle --- \textbf{package net} is what matters
+\end{enumerate}
+
+%==============================================================================
+\section{What to Watch (Live Arb Session)}
+%==============================================================================
+
+\begin{itemize}
+  \item \textbf{Packages per day} --- live books are thinner than synthetic; expect far fewer than 44/61d backtest rate unless gaps appear
+  \item \textbf{Package-level P\&L} --- not per-leg settlement display
+  \item \textbf{Orphan legs} --- if one leg fills and other fails, rollback should unwind (costs both fees)
+  \item \textbf{Scan freshness} --- stale scan alert means hung loop; restart bot if $>$90s
+  \item \textbf{DD breaker} --- at 15\% off peak, governor may force arb-only anyway (already arb-only)
+\end{itemize}
+
+%==============================================================================
+\section{Improvement Priorities (Arb Track)}
+%==============================================================================
+
+\begin{enumerate}
+  \item \textbf{Record real CLOB WS books} --- replace synthetic \texttt{bookSim} for calibration
+  \item \textbf{Package P\&L dashboard card} --- aggregate legs, hide confusing per-leg settle losses
+  \item \textbf{Hit-rate telemetry} --- \texttt{ARB SKIP} vs \texttt{PACKAGE LOCKED} ratio per hour
+  \item \textbf{Instant CTF merge} on live --- lock profit without waiting for window end
+  \item \textbf{Do not re-enable directional} until isolated directional session shows positive expectancy
+\end{enumerate}
+
+%==============================================================================
+\section{Files \& Commands}
+%==============================================================================
+
+\begin{verbatim}
+# Backtest (already run)
+npx tsx scripts/historical-backtest.ts --months=2 --bankroll=10000 \
+  --reload=10000 --arb-only --no-fetch
+
+# Live arb-only session
+npm run session:arb
+
+# Recompile this PDF
+npm run report:arb-pdf
+
+Backtest JSON:  data/backtest/backtest-2mo-arb-2026-09-02T17-40-53.json
+Backtest log:   logs/backtest-2mo-arb.log
+This PDF:       docs/reports/zinger-arb-run-report.pdf
+Status PDF:     docs/reports/zinger-status-report.pdf
+\end{verbatim}
+
+\vfill
+\begin{center}
+\small
+\textcolor{gray}{Synthetic backtest results do not guarantee live performance.\\
+Paper trading only. Not financial advice.}
+\end{center}
+
+\end{document}

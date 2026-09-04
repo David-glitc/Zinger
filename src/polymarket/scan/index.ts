@@ -10,6 +10,7 @@ import {
   enrichMarketsWithOracle,
 } from './inputs.js';
 import { settlePaperOrphans } from './exits.js';
+import { selectTradableMarkets } from '../markets.js';
 
 /**
  * Lean sequential scan orchestrator (~80 lines of control flow).
@@ -34,6 +35,7 @@ export async function executeScanCycle({
   getDepthForMarket,
   recordChartTick,
   detectAndExecuteArbPackage,
+  detectAndExecuteArbPackages,
   buildDecision,
   executeTrade,
   executeSell,
@@ -87,17 +89,19 @@ export async function executeScanCycle({
       log,
     });
 
-    const { markets = [], diagnostics = [] } = typeof findMarkets === 'function'
+    let { markets = [], diagnostics = [] } = typeof findMarkets === 'function'
       ? await findMarkets(resolveMarketDurations(cfg))
       : { markets: [], diagnostics: [] };
+    let tradableMarkets = selectTradableMarkets(markets, cfg);
+    if (tradableMarkets.length === 0 && markets.length > 0 && typeof findMarkets === 'function') {
+      ({ markets = [], diagnostics = [] } = await findMarkets(resolveMarketDurations(cfg), { force: true }));
+      tradableMarkets = selectTradableMarkets(markets, cfg);
+    }
     botState.diagnostics = diagnostics;
 
-    const tradableMarkets = cfg.tradeCurrentWindowOnly
-      ? markets.filter((market) => market.isCurrent)
-      : markets;
-
     if (markets.length === 0) {
-      if (typeof log === 'function') log(`🧯 Discovery miss — 0 BTC/ETH markets`, 'error', { diagnostics });
+      const hint = 'Polymarket Gamma only lists 5m, 15m, 4h up/down — not 30m/1h. Fix enabledDurations.';
+      if (typeof log === 'function') log(`🧯 Discovery miss — 0 BTC/ETH markets · ${hint}`, 'error', { diagnostics });
     } else if (diagnostics.length > 0 && typeof log === 'function') {
       log(`🧭 Discovery partial — ${markets.length} live · ${diagnostics.length} missing`, 'scan', { diagnostics });
     }
@@ -136,6 +140,7 @@ export async function executeScanCycle({
         },
         lastScan: botState.lastScan,
         botRunning: true,
+        forceArbOnly: cfg?.forceArbOnly === true,
       });
       if (!botState._dataAssurance.canBuy && cfg.requireDataAssurance !== false && typeof log === 'function') {
         log(`🛡️ DATA GATE · ${botState._dataAssurance.note}`, 'scan', {
@@ -166,7 +171,7 @@ export async function executeScanCycle({
     const buyCount = enriched.filter((market) => market.action === 'buy').length;
     if (typeof logScan === 'function') {
       logScan(
-        `🔎 Scan #${botState.stats.scansDone} — ${enriched.length} mkts · ${buyCount} buy signals · cycle ${formatRemainingMs()}`,
+        `🔎 Scan #${botState.stats.scansDone} — ${enriched.length} mkts · ${buyCount} buy signals · window ${formatRemainingMs()} left`,
         {
           scan: botState.stats.scansDone,
           markets: enriched.map((market) => ({

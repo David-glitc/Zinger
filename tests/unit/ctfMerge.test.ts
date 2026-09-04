@@ -72,16 +72,23 @@ describe('Feature: Instant On-Chain CTF Merge (mergePositions)', () => {
 
       const pkg = await detectAndExecuteArbPackage({
         market,
-        depth: { up: { bestAsk: 0.35 }, down: { bestAsk: 0.55 } },
+        depth: {
+          up: { bestAsk: 0.35, asks: [{ price: 0.35, size: 500, value: 175 }] },
+          down: { bestAsk: 0.55, asks: [{ price: 0.55, size: 500, value: 275 }] },
+        },
         prices: { up: 0.35, down: 0.55 },
         cfg: {
           clobArbEnabled: true,
           minArbGap: 0.01,
           simulateClobFees: true,
           instantCtfMerge: true,
+          arbExitMode: 'merge',
           paperBankroll: 100,
           arbBankrollFrac: 0.1,
           arbMaxUsd: 10,
+          minArbPackageUsd: 0,
+          minArbLockedProfitUsd: 0,
+          minArbLockedProfitPct: 0,
         },
         mode: 'live',
         log: () => {},

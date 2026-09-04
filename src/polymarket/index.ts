@@ -1,5 +1,5 @@
 // @ts-nocheck
-export { findMarkets, searchMarkets } from './markets.js';
+export { findMarkets, searchMarkets, selectTradableMarkets } from './markets.js';
 export { getOrderBook, getMidPrice, getPricesForMarket, getTrades } from './clob.js';
 export {
   getState,
@@ -27,6 +27,11 @@ export {
   applyLlmPrimitives,
   getTraces,
   markNotificationsRead,
+  getObservability,
+  setGovernorRegimeManual,
+  setGovernorRegimeAuto,
+  clearGovernorBreakerManual,
+  queryTelemetryEvents,
   saveCurrentConfigSession,
   getConfigSessionsAnalysis,
   restoreConfigSession,

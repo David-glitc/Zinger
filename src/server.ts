@@ -25,6 +25,7 @@ import { sseLine } from './lib/sse.js';
 import { loadPackages, getArbPackageMetrics } from './polymarket/arbEngine.js';
 import { loadFileOrStore, saveFileOrStore } from './polymarket/sqliteStore.js';
 import { describeBackend } from './polymarket/persistence.js';
+import { getSignalHealth } from './polymarket/signalHealth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -362,7 +363,22 @@ export async function createApp() {
   // --- Polymarket AI Prediction Bot ---
 
   let polySseClients = [];
+  let obsSseClients = [];
   let _polyPushTimer = null;
+  function pushObservability() {
+    if (!obsSseClients.length) return;
+    let data;
+    try {
+      data = JSON.stringify(poly.getObservability({ eventLimit: 30 }));
+    } catch (e) {
+      console.error('[obs-sse] serialize fail', e.message);
+      return;
+    }
+    obsSseClients = obsSseClients.filter((c) => {
+      try { c.res.write(c.lz4 ? sseLine(data) : `data: ${data}\n\n`); return true; }
+      catch { try { c.res.end(); } catch {} return false; }
+    });
+  }
   function pushPolyState() {
     if (!polySseClients.length) return;
     if (_polyPushTimer) return;
@@ -379,6 +395,7 @@ export async function createApp() {
         try { c.res.write(c.lz4 ? sseLine(data) : `data: ${data}\n\n`); return true; }
         catch { try { c.res.end(); } catch {} return false; }
       });
+      pushObservability();
     }, 150);
   }
   poly.onStateChange(pushPolyState);
@@ -394,6 +411,49 @@ export async function createApp() {
     const lean = req.query.lean === '1' || req.query.lean === 'true';
     res.json(poly.getState(lean ? { lean: true } : {}));
   });
+
+  app.get('/api/poly/signal-health', (req, res) => {
+    res.json(getSignalHealth());
+  });
+
+  app.get('/api/poly/observability', (req, res) => {
+    try {
+      const eventLimit = Math.min(200, Number(req.query.eventLimit) || 50);
+      const since = req.query.since ? Number(req.query.since) : undefined;
+      res.json(poly.getObservability({ eventLimit, since }));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get('/api/poly/observability/stream', (req, res) => {
+    const client = { res, lz4: req.query.lz4 === '1' || req.query.lz4 === 'true' };
+    obsSseClients.push(client);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      'Access-Control-Allow-Origin': '*',
+    });
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    try {
+      const payload = JSON.stringify(poly.getObservability({ eventLimit: 30 }));
+      res.write(client.lz4 ? sseLine(payload) : `data: ${payload}\n\n`);
+    } catch (e) {
+      console.error('[obs-sse] initial write fail', e.message);
+    }
+    req.on('close', () => {
+      obsSseClients = obsSseClients.filter((c) => c !== client);
+    });
+  });
+
+  setInterval(() => {
+    obsSseClients = obsSseClients.filter((c) => {
+      try { c.res.write(`: ping ${Date.now()}\n\n`); return true; }
+      catch { try { c.res.end(); } catch {} return false; }
+    });
+  }, 20000);
 
   app.get('/api/poly/packages', (req, res) => {
     try {
@@ -472,9 +532,35 @@ export async function createApp() {
     res.json({
       ok: true,
       mode: state.config?.mode,
+      config: state.config,
       edgeGate: state.edgeGate || null,
       liveBlocked: req.body?.mode === 'live' && state.config?.mode !== 'live',
     });
+  });
+
+  app.post('/api/poly/governor/regime', (req, res) => {
+    try {
+      const { regime, auto } = req.body || {};
+      if (auto) {
+        res.json(poly.setGovernorRegimeAuto());
+        return;
+      }
+      if (!regime) {
+        res.status(400).json({ ok: false, error: 'regime required (scalp|trend-ride|arb-only) or auto:true' });
+        return;
+      }
+      res.json(poly.setGovernorRegimeManual(regime));
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.post('/api/poly/governor/clear-breaker', (req, res) => {
+    try {
+      res.json(poly.clearGovernorBreakerManual());
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
   });
 
   app.get('/api/poly/config-sessions', (req, res) => {

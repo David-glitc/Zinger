@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { signedUsd } from '../lib/money.js';
 import { getModelStates, getModelHealth } from '../polymarket/modelRegistry.js';
 import { getConfidenceBufferStats, getConsensus, getPriceTrace } from '../polymarket/confidence.js';
 import { getSpotHistory, getSpotPriceSnapshot, onSpotTick } from '../polymarket/spotPriceHistory.js';
@@ -302,7 +303,7 @@ function updatePublicPaper(signals, markets, rawMarkets) {
           id: `paper_close_${asset}_${now}`,
           type: 'close',
           asset: asset.toUpperCase(),
-          message: `${asset.toUpperCase()} ${open.outcome.toUpperCase()} ${closed.reason} · PnL ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} · fee $${pack.fee.toFixed(4)}`,
+          message: `${asset.toUpperCase()} ${open.outcome.toUpperCase()} ${closed.reason} · PnL ${signedUsd(pnl)} · fee $${pack.fee.toFixed(4)}`,
           timestamp: now,
           pnl,
           fee: pack.fee,

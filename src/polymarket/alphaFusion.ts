@@ -17,6 +17,8 @@
  * (`alpha.components`) so operators can see *why* a signal fired.
  */
 
+import { CONF_CAP, CONF_FLOOR, fusedConfidence } from './confidenceScale.js';
+
 const REGIME_WEIGHTS = {
   trend: { TA_MEANREV: 0.15, TA_MOMENTUM: 0.45, ORDER_FLOW: 0.25, CROSS_ASSET: 0.2, POSITIONING: 0.15 },
   highvol: { TA_MEANREV: 0.3, TA_MOMENTUM: 0.1, ORDER_FLOW: 0.2, CROSS_ASSET: 0.1, POSITIONING: 0.2 },
@@ -70,10 +72,20 @@ export function fuseAlpha({
   // ── 2. TA momentum ───────────────────────────────────────────────
   const m1 = Number(analysis.momentum?.m1 ?? 0);
   const m5 = Number(analysis.momentum?.m5 ?? 0);
-  const macdH = Number(analysis.macd?.hist ?? 0);
+  // `histPct` (percent of price), not `hist` (price units). `m1`/`m5` are
+  // already percentages, so mixing raw `hist` in put a BTC-scale number next to
+  // two sub-1.0 ones and saturated the clamp on every scan regardless of what
+  // the momentum actually was.
+  const macdH = Number(analysis.macd?.histPct ?? 0);
   const volRatio = Number(analysis.volume?.ratio ?? 1);
-  const momVote = clamp11(m1 * 8 + m5 * 3 + macdH * 40);
-  push('TA_MOMENTUM', momVote, 1, `m1=${round(m1)} m5=${round(m5)} macd=${round(macdH)}`);
+  // Multiplier calibrated on 700 live bars of each of BTC and ETH: |macdPct|
+  // sits at p90 ≈ 0.027, so 14 puts this term's p90 contribution near 0.40 —
+  // level with m1 (0.62/0.75) and m5 (0.48/0.55). The previous 40 gave it 1.06
+  // on BTC and 1.15 on ETH, i.e. it saturated clamp11 unaided and the other two
+  // terms could not affect the result. BTC and ETH agreed on 15.0 and 13.9
+  // independently, which is what makes 14 a calibration rather than a guess.
+  const momVote = clamp11(m1 * 8 + m5 * 3 + macdH * 14);
+  push('TA_MOMENTUM', momVote, 1, `m1=${round(m1)} m5=${round(m5)} macdPct=${round(macdH, 4)}`);
 
   // ── 3. Order flow ────────────────────────────────────────────────
   if (book) {
@@ -131,10 +143,12 @@ export function fuseAlpha({
   fused += regimePenalty * 0.3;
   fused = clamp11(fused);
 
-  // Confidence: magnitude after squash + a floor from base TA
-  const baseConf = Number(analysis.confidence ?? 0.4);
+  // Confidence: fused magnitude blended with base TA, scaled by the shared cap.
+  // See confidenceScale.ts — the previous formula both exceeded CONF_CAP (max
+  // 0.86) and invented a 0.30 floor for a zero-information signal.
+  const baseConf = Number(analysis.confidence ?? CONF_FLOOR);
   const mag = Math.abs(fused);
-  const confidence = round(clamp01(0.5 + mag * 0.5) * 0.6 + baseConf * 0.4 * volScale, 3);
+  const confidence = round(fusedConfidence(mag, baseConf, volScale), 3);
 
   const direction = fused > 0.12 ? 'up' : fused < -0.12 ? 'down' : 'neutral';
   const score = round(fused * 10, 1);

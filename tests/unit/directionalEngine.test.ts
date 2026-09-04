@@ -164,6 +164,44 @@ describe('directional engine — entry gate invariants', () => {
     expect(d.reasons.join(' ')).toMatch(/already in this window/i);
   });
 
+  it('never fades a confident signal, at any price', () => {
+    // A counter entry is the cheap half of a near-even binary by construction:
+    // when the signal reads DOWN, the UP side is always the cheaper one. So
+    // gating counter entries on price alone lets a confident signal be faded on
+    // every scan, and the wider `underdogMaxPrice` is, the more completely the
+    // bot trades against itself.
+    //
+    // Regression: with underdogMaxPrice 0.52, 8 of 9 live paper entries bought
+    // UP while BTC and ETH both read DOWN at ~0.72 confidence, and all nine
+    // closed at a loss. `arbExploreRate` is 0 in CFG, so nothing here is random.
+    // 0.30 is ~p95 on the repaired confidence scale (p50 0.142, max 0.455), so
+    // it is the modern equivalent of the 0.72 this test used against the old,
+    // inflated scale. See CONF_GATE in confidenceScale.ts.
+    for (const price of [0.10, 0.30, 0.41, 0.45, 0.52]) {
+      const d = decide({
+        outcome: 'up',
+        price,
+        signal: { direction: 'down', confidence: 0.30, score: -5, asset: 'BTC' },
+      });
+      expect(d.eligible, `confident counter at price=${price}`).toBe(false);
+      expect(d.reasons.join(' ')).toMatch(/counter/i);
+    }
+  });
+
+  it('still allows a counter entry when the signal is weak and the price is a long shot', () => {
+    // The escape hatch has to survive: fading a 40%-confidence signal on a
+    // genuine long shot is a real strategy, and blocking it outright would make
+    // the gate above a blunt "never counter-trade".
+    // Below CONF_GATE.LOOSE (0.20) — roughly the bottom three quarters of the
+    // repaired distribution, i.e. genuinely weak rather than merely modest.
+    const d = decide({
+      outcome: 'up',
+      price: 0.30,
+      signal: { direction: 'down', confidence: 0.12, score: -2, asset: 'BTC' },
+    });
+    expect(d.reasons.join(' ')).not.toMatch(/counter blocked/i);
+  });
+
   it('always explains itself — an ineligible candidate carries a reason', () => {
     // Objective 1: "why did the bot not do X" must be answerable from the
     // record. A silent false is the failure mode this refactor exists to remove.

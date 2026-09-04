@@ -1,26 +1,33 @@
+// @ts-nocheck
 import { savePackage, loadPackages, getActivePackages, resetPackages } from './arbPersistence.js';
 import {
   closeProceedsWithFee,
-  takerFeeUsdc,
   arbBreakEvenGap,
   peekClobFeeParams,
+  takerFeeUsdc,
 } from './fees.js';
 import { executeCtfMerge } from './ctf/merge.js';
 import { emitEvent } from './telemetry/events.js';
+import {
+  evaluateArbOpportunity,
+  cloneDepth,
+  consumeOpportunityDepth,
+  hasRealAskLadders,
+} from './arbDepth.js';
+import {
+  evaluateArbSurfaces,
+  evaluateReverseBidOpportunity,
+} from './arbSurfaces.js';
+import { resolveArbGates } from './arbGates.js';
 import type { ArbPackage } from './arbPersistence.js';
 
 export type { ArbPackage };
 export { getActivePackages, loadPackages, resetPackages };
+export { evaluateArbSurfaces, evaluateReverseBidOpportunity, resolveArbGates };
 
 /**
  * True when both legs are complementary outcomes of one binary condition, so
- * holding the pair to settlement redeems exactly $1.00 — precisely one token
- * resolves to $1 and the other to $0.
- *
- * This is a property of the CTF binary split, NOT of `negRisk`. That flag marks
- * the NegRiskAdapter used to bundle multi-outcome events, and Polymarket reports
- * it false on every btc/eth-updown market this bot trades — gating arb on it
- * disabled the strategy outright.
+ * holding the pair to settlement redeems exactly $1.00.
  */
 export function isComplementaryBinary(market): boolean {
   if (!market?.conditionId) return false;
@@ -30,130 +37,394 @@ export function isComplementaryBinary(market): boolean {
   return Boolean(up && down && up !== down);
 }
 
+function resolveShareBudget(cfg, mode, readiness) {
+  const arbBank = mode === 'paper'
+    ? Number(cfg.paperInitialDeposit || cfg.paperBankroll || 0)
+    : Number(readiness?.spendableBalance ?? readiness?.clobBalance ?? 0);
+
+  const baseArbCap = Number(cfg.arbMaxUsd ?? 100);
+  const baseFrac = Number(cfg.arbBankrollFrac ?? 0.20);
+  let arbIsGuaranteed = false;
+  try {
+    const allPkgs = loadPackages().filter((p) => p.mode === mode);
+    const settled = allPkgs.filter((p) => p.status === 'SETTLED' || p.status === 'MERGED');
+    if (settled.length >= 5) {
+      const wins = settled.filter((p) => Number(p.lockedProfitUsd || 0) > 0).length;
+      arbIsGuaranteed = wins === settled.length;
+    }
+  } catch { /* ignore */ }
+
+  const effectiveArbMaxUsd = arbIsGuaranteed ? baseArbCap * 2 : baseArbCap;
+  const effectiveFrac = arbIsGuaranteed ? Math.min(0.30, baseFrac * 1.5) : baseFrac;
+  return {
+    shareBudget: Math.max(
+      Number(cfg.minPositionSize ?? 0.5) * 2,
+      Math.min(arbBank * effectiveFrac, effectiveArbMaxUsd),
+    ),
+    packageCap: effectiveArbMaxUsd,
+  };
+}
+
 /**
- * Detects an orderbook gap and executes an atomic ArbPackage.
- * Completely bypasses directional signals, indicator filters, ML overlays, and ATR stop-losses.
+ * Detect + execute up to maxArbPerSlug packages on one market in a single pass,
+ * consuming ask depth between packages so multi-fill captures remaining edge.
+ */
+export async function detectAndExecuteArbPackages(args) {
+  const {
+    market, depth, prices, cfg, mode = 'paper', readiness, log,
+    executeTrade, adjustPaperCash, saveTrade, botState,
+  } = args;
+
+  if (cfg.clobArbEnabled === false) return [];
+  if (!isComplementaryBinary(market)) return [];
+  if (!hasRealAskLadders(depth)) {
+    if (log) {
+      log(`⏭️ ARB SKIP ${market.symbol} — no real ask ladder (refuse synthetic touch)`, 'scan', {
+        slug: market.slug,
+      });
+    }
+    return [];
+  }
+
+  const working = cloneDepth(depth);
+  const maxPerSlug = Math.max(1, Number(cfg.maxArbPerSlug ?? 1));
+  const maxPkgs = Number(cfg.maxArbPackages ?? 4);
+  const locked = [];
+
+  for (let i = 0; i < maxPerSlug; i++) {
+    const active = getActivePackages(mode);
+    if (active.length >= maxPkgs) break;
+    const slugActive = active.filter((p) => p.slug === market.slug).length;
+    if (slugActive >= maxPerSlug) break;
+
+    const pkg = await detectAndExecuteArbPackage({
+      market,
+      depth: working,
+      prices,
+      cfg,
+      mode,
+      readiness,
+      log,
+      executeTrade,
+      adjustPaperCash,
+      saveTrade,
+      botState,
+      _fromMulti: true,
+    });
+
+    if (!pkg) break;
+    if (pkg.status === 'LOCKED' || pkg.status === 'MERGED') {
+      locked.push(pkg);
+      if (pkg._opp) consumeOpportunityDepth(working, pkg._opp);
+      delete pkg._opp;
+    } else {
+      // Abort / skip — stop slicing this book this scan
+      break;
+    }
+  }
+
+  return locked;
+}
+
+/**
+ * Stage-2 reverse arb: when bid(UP)+bid(DOWN) > 1 + sell fees, mint a $1 pair
+ * and sell both into bids. Paper simulates mint+dual-sell atomically.
+ * Live requires CTF split — deferred until wallet split path is wired.
+ */
+export async function detectAndExecuteReverseBidPackage({
+  market,
+  depth,
+  prices,
+  cfg,
+  mode = 'paper',
+  log,
+  adjustPaperCash,
+  saveTrade,
+  botState,
+}) {
+  if (cfg.clobArbEnabled === false) return null;
+  if (cfg.arbReverseEnabled === false) return null;
+  if (!isComplementaryBinary(market)) return null;
+
+  const feeParams = (cfg.useClobMarketFees !== false && peekClobFeeParams(market.tokenIds?.up))
+    || (cfg.feeCategory || 'crypto');
+  const activePkgs = getActivePackages(mode);
+  const maxPkgs = Number(cfg.maxArbPackages ?? 4);
+  if (activePkgs.length >= maxPkgs) return null;
+
+  const remSec = market?.endTime
+    ? Math.max(0, (Number(market.endTime) * 1000 - Date.now()) / 1000)
+    : Number(market?.remainingSec ?? market?.remaining);
+  const touchBidUp = Number(depth?.up?.bestBid || 0);
+  const touchBidDown = Number(depth?.down?.bestBid || 0);
+  const gates = resolveArbGates(cfg, {
+    remainingSec: remSec,
+    touchBidPremium: touchBidUp && touchBidDown ? touchBidUp + touchBidDown - 1 : undefined,
+  });
+
+  const { shareBudget, packageCap } = resolveShareBudget(cfg, mode, null);
+  const opp = evaluateReverseBidOpportunity({
+    depth,
+    prices,
+    maxBudgetUsd: Math.min(shareBudget, packageCap),
+    feeParams,
+    marginPct: gates.marginPct,
+    minBidPremium: gates.minGap,
+    minPackageUsd: gates.minPackageUsd,
+  });
+  if (!opp) return null;
+
+  if (gates.minLockedUsd > 0 && opp.lockedProfitUsd < gates.minLockedUsd) return null;
+  if (gates.minLockedPct > 0 && opp.lockedProfitPct < gates.minLockedPct) return null;
+
+  if (mode !== 'paper') {
+    if (log) {
+      log(
+        `⏭️ ARB REV SKIP ${market.symbol} — live CTF split not wired yet (bidΣ=${opp.sum?.toFixed(3)} net/sh $${opp.netPerShare?.toFixed(4)})`,
+        'scan',
+        { slug: market.slug, stage: 2, bidSum: opp.sum },
+      );
+    }
+    return null;
+  }
+
+  if (Number(cfg.paperBankroll ?? 0) < opp.mintCost + 0.01) return null;
+
+  const packageId = `pkg-rev-${market.symbol.toLowerCase()}-${Date.now().toString(36)}`;
+  const pkg: ArbPackage = {
+    packageId,
+    symbol: market.symbol,
+    slug: market.slug,
+    windowKey: market.windowKey || `slug-${market.slug}`,
+    shares: opp.shares,
+    upCost: Math.round(opp.shares * 0.5 * 100) / 100,
+    downCost: Math.round(opp.shares * 0.5 * 100) / 100,
+    totalCost: opp.mintCost,
+    expectedPayout: opp.netProceeds,
+    lockedProfitUsd: opp.lockedProfitUsd,
+    lockedProfitPct: Math.round(opp.lockedProfitPct * 100) / 100,
+    feesEstUsd: opp.feesEstUsd,
+    gap: Math.round((opp.premium || 0) * 100000) / 100000,
+    status: 'PENDING_FILL',
+    mode,
+    createdAt: Date.now(),
+    legs: {
+      up: {
+        outcome: 'up',
+        tokenId: market.tokenIds?.up || null,
+        entryPrice: 0.5,
+        cost: Math.round(opp.shares * 0.5 * 100) / 100,
+        shares: opp.shares,
+        filled: true,
+      },
+      down: {
+        outcome: 'down',
+        tokenId: market.tokenIds?.down || null,
+        entryPrice: 0.5,
+        cost: Math.round(opp.shares * 0.5 * 100) / 100,
+        shares: opp.shares,
+        filled: true,
+      },
+    },
+  };
+  (pkg as any).arbStage = 2;
+  (pkg as any).arbKind = 'reverse_bid';
+
+  if (typeof adjustPaperCash === 'function') {
+    adjustPaperCash(-opp.mintCost, `ARB_REV_MINT ${market.symbol}`);
+    adjustPaperCash(opp.netProceeds, `ARB_REV_SELL ${market.symbol}`);
+  }
+
+  const now = Date.now();
+  for (const outcome of ['up', 'down'] as const) {
+    const bid = outcome === 'up' ? opp.upBid : opp.downBid;
+    const entry = 0.5;
+    const feeHalf = Math.round((opp.feesEstUsd / 2) * 1e5) / 1e5;
+    const pnl = Math.round(((bid - entry) * opp.shares - feeHalf) * 100) / 100;
+    const trade = {
+      id: `${packageId}-${outcome}`,
+      symbol: market.symbol,
+      slug: market.slug,
+      outcome,
+      entryPrice: entry,
+      exitPrice: bid,
+      shares: opp.shares,
+      costBasis: Math.round(opp.shares * entry * 100) / 100,
+      pnl,
+      closed: true,
+      mode: 'paper',
+      packageId,
+      isArbLeg: true,
+      engine: 'arb',
+      exitReason: 'arb_reverse_bid',
+      arbStage: 2,
+      timestamp: now,
+      entryTime: now,
+    };
+    if (typeof saveTrade === 'function') saveTrade(trade);
+  }
+
+  pkg.status = 'MERGED';
+  pkg.mergedAt = now;
+  (pkg as any).mergeMethod = 'paper_reverse_bid';
+  savePackage(pkg);
+
+  emitEvent('package.settlement', {
+    packageId,
+    symbol: market.symbol,
+    slug: market.slug,
+    action: 'paper_reverse_bid',
+    shares: opp.shares,
+    lockedProfitUsd: opp.lockedProfitUsd,
+    bidSum: opp.sum,
+    mode: 'paper',
+  });
+
+  if (log) {
+    log(
+      `📦 ARB STAGE2 REV ${market.symbol} bidΣ=$${opp.sum.toFixed(3)} · mint $${opp.mintCost.toFixed(2)} → sell $${opp.netProceeds.toFixed(2)} · +$${opp.lockedProfitUsd.toFixed(2)}`,
+      'buy',
+      {
+        packageId,
+        slug: market.slug,
+        stage: 2,
+        bidSum: opp.sum,
+        lockedProfitUsd: opp.lockedProfitUsd,
+        shares: opp.shares,
+      },
+    );
+  }
+
+  void botState;
+  return pkg;
+}
+
+/**
+ * Detects an orderbook gap and executes one atomic ArbPackage.
  */
 export async function detectAndExecuteArbPackage({
   market,
   depth,
   prices,
   cfg,
-  mode = 'paper' as 'paper' | 'live',
+  mode = 'paper',
   readiness,
   log,
   executeTrade,
   adjustPaperCash,
   saveTrade,
   botState,
+  _fromMulti = false,
 }) {
   if (cfg.clobArbEnabled === false) return null;
-  // Never execute arb packages on markets where both legs could lose.
   if (!isComplementaryBinary(market)) return null;
 
-  const upAsk = Number(depth?.up?.bestAsk || prices?.up || 0);
-  const downAsk = Number(depth?.down?.bestAsk || prices?.down || 0);
-  if (!(upAsk > 0.01 && downAsk > 0.01 && upAsk < 0.99 && downAsk < 0.99)) return null;
+  if (!_fromMulti && !hasRealAskLadders(depth)) {
+    if (log) {
+      log(`⏭️ ARB SKIP ${market.symbol} — no real ask ladder`, 'scan', { slug: market.slug });
+    }
+    return null;
+  }
 
-  const sum = upAsk + downAsk;
-  const gap = 1 - sum;
-
-  // Fee-aware threshold (backlog item 7). Profit per share IS the gap, because
-  // a full set redeems exactly $1.00 — and each leg pays a taker fee of
-  // rate × (p(1−p))^e per share. So break-even is a function of the book, not a
-  // constant: 3.5% at 50/50, 1.88% at 0.83/0.15, 1.26% at 0.10/0.90.
-  //
-  // A flat threshold is wrong in *both* directions. The shipped 0.015 default
-  // loses money on any book between roughly $0.12 and $0.88; a 0.035 stop-gap
-  // is right at 50/50 but throws away profitable skewed books. Measured on the
-  // 2026-08-18 overnight run, this gate rejects both losing packages and keeps
-  // all four winners, including one a flat 0.035 would have refused.
-  //
-  // Live params when they are already cached, category schedule otherwise —
-  // `peekClobFeeParams` never fetches. Deliberate: this gate runs per market
-  // per scan, and putting a 4s-timeout network call in the arb path is the
-  // shape that caused the 2026-08-12 outage. The fallback is not a compromise
-  // on these markets anyway — crypto reports {"r":0.07,"e":1} live, which is
-  // exactly FEE_RATES.crypto with exponent 1. Both legs share one conditionId,
-  // so one lookup covers the pair, and the fill path warms the cache for the
-  // scans that follow.
   const feeParams = (cfg.useClobMarketFees !== false && peekClobFeeParams(market.tokenIds?.up))
     || (cfg.feeCategory || 'crypto');
-  const breakEvenGap = arbBreakEvenGap(upAsk, downAsk, feeParams);
-  const marginPct = Number(cfg.arbMinMarginPct ?? 0.005);
-  const requiredGap = breakEvenGap + marginPct;
-  if (!(gap > requiredGap)) {
-    if (log && gap > 0) {
+  const remSec = market?.endTime
+    ? Math.max(0, (Number(market.endTime) * 1000 - Date.now()) / 1000)
+    : Number(market?.remainingSec ?? market?.remaining);
+  const touchUp = Number(depth?.up?.bestAsk || prices?.up || 0);
+  const touchDown = Number(depth?.down?.bestAsk || prices?.down || 0);
+  const touchBidUp = Number(depth?.up?.bestBid || 0);
+  const touchBidDown = Number(depth?.down?.bestBid || 0);
+  const gates = resolveArbGates(cfg, {
+    remainingSec: remSec,
+    touchGap: touchUp && touchDown ? 1 - touchUp - touchDown : undefined,
+    touchBidPremium: touchBidUp && touchBidDown ? touchBidUp + touchBidDown - 1 : undefined,
+  });
+  const marginPct = gates.marginPct;
+  const minGap = gates.minGap;
+  const minPackageUsd = gates.minPackageUsd;
+
+  const { shareBudget, packageCap } = resolveShareBudget(cfg, mode, readiness);
+
+  const opp = evaluateArbOpportunity({
+    depth,
+    prices,
+    maxBudgetUsd: shareBudget,
+    targetBudgetUsd: packageCap,
+    feeParams,
+    marginPct,
+    minGap,
+    minShares: 0.5,
+    requireRealLadder: true,
+    minPackageUsd,
+  });
+
+  if (!opp) {
+    const touchGap = 1 - touchUp - touchDown;
+    if (log && touchGap > 0 && !_fromMulti) {
+      const breakEvenGap = arbBreakEvenGap(touchUp, touchDown, feeParams);
       log(
-        `⏭️ ARB SKIP ${market.symbol} gap ${(gap * 100).toFixed(2)}% ≤ break-even ${(breakEvenGap * 100).toFixed(2)}%${marginPct ? ` + margin ${(marginPct * 100).toFixed(2)}%` : ''} — would not cover its own fees`,
+        `⏭️ ARB SKIP ${market.symbol} touch gap ${(touchGap * 100).toFixed(2)}% — ladder walk found no fee-positive size (break-even ${(breakEvenGap * 100).toFixed(2)}% + margin ${(marginPct * 100).toFixed(2)}% · ${gates.reason})`,
         'scan',
-        { slug: market.slug, gap, breakEvenGap, requiredGap, upAsk, downAsk },
+        { slug: market.slug, touchGap, breakEvenGap, touchUp, touchDown, gates },
       );
     }
     return null;
   }
 
-  // The operator's absolute floor. Semantics unchanged, and kept separate on
-  // purpose: this answers "how big a dislocation is worth the trouble", the
-  // gate above answers "can this trade make money at all". Setting it below
-  // break-even is now safe — the fee gate is not optional.
-  const minGap = Number(cfg.minArbGap ?? 0.015);
-  if (gap < minGap) return null;
+  const minLockedUsd = gates.minLockedUsd;
+  const minLockedPct = gates.minLockedPct;
+  if (minLockedUsd > 0 && Number(opp.lockedProfitUsd) < minLockedUsd) {
+    if (log && !_fromMulti) {
+      log(
+        `⏭️ ARB SKIP ${market.symbol} locked +$${Number(opp.lockedProfitUsd).toFixed(2)} < min $${minLockedUsd.toFixed(2)} (${gates.reason})`,
+        'scan',
+        { slug: market.slug, lockedProfitUsd: opp.lockedProfitUsd, minLockedUsd, gates },
+      );
+    }
+    return null;
+  }
+  if (minLockedPct > 0 && Number(opp.lockedProfitPct) < minLockedPct) {
+    if (log && !_fromMulti) {
+      log(
+        `⏭️ ARB SKIP ${market.symbol} locked +${Number(opp.lockedProfitPct).toFixed(2)}% < min ${minLockedPct.toFixed(2)}% (${gates.reason})`,
+        'scan',
+        { slug: market.slug, lockedProfitPct: opp.lockedProfitPct, minLockedPct, gates },
+      );
+    }
+    return null;
+  }
 
-  // Capacity check against dedicated maxArbPackages setting
+  const { upAsk, downAsk, gap, breakEvenGap, shares } = opp;
+  const sum = upAsk + downAsk;
   const activePkgs = getActivePackages(mode);
   const maxPkgs = Number(cfg.maxArbPackages ?? 4);
+  const maxPerSlug = Math.max(1, Number(cfg.maxArbPerSlug ?? 1));
   if (activePkgs.length >= maxPkgs) return null;
 
-  // Verify no active package on this market slug
-  if (activePkgs.some((p) => p.slug === market.slug)) return null;
+  const slugActive = activePkgs.filter((p) => p.slug === market.slug).length;
+  if (slugActive >= maxPerSlug) return null;
 
-  // Bankroll allocation
-  const arbBank = mode === 'paper'
-    ? Number(cfg.paperBankroll ?? 0)
-    : Number(readiness?.spendableBalance ?? readiness?.clobBalance ?? 0);
-
-  const shareBudget = Math.max(
-    Number(cfg.minPositionSize ?? 0.5) * 2,
-    Math.min(
-      arbBank * Number(cfg.arbBankrollFrac ?? 0.10),
-      Number(cfg.arbMaxUsd ?? 50),
-    ),
-  );
-
-  const shares = Math.max(0.5, Math.round((shareBudget / sum) * 1000) / 1000);
-  const costUp = Math.round(shares * upAsk * 100) / 100;
-  const costDown = Math.round(shares * downAsk * 100) / 100;
-  const totalCost = Math.round((costUp + costDown) * 100) / 100;
+  let costUp = Math.round(opp.shares * upAsk * 100) / 100;
+  let costDown = Math.round(opp.shares * downAsk * 100) / 100;
+  let totalCost = Math.round((costUp + costDown) * 100) / 100;
 
   if (mode === 'paper' && Number(cfg.paperBankroll ?? 0) < totalCost + 0.01) {
     return null;
   }
 
   const packageId = `pkg-${market.symbol.toLowerCase()}-${Date.now().toString(36)}`;
-  const expectedPayout = Math.round(shares * 1.00 * 100) / 100;
-
-  // Locked profit is reported NET (backlog item 7, second half). It used to be
-  // `expectedPayout − totalCost`, gross of fees, so the UI overstated every
-  // package — the 2026-08-18 run reported $2.66 against a real $0.85. That also
-  // fed item 24: `getArbPackageMetrics` falls back to `lockedProfitUsd` for any
-  // package whose leg trades are gone, so the gross figure became permanent,
-  // uncorrectable phantom profit.
-  //
-  // Only the two entry fees apply. Holding to settlement redeems the set
-  // fee-free (FEE_FREE_EXIT_REASONS), which is exactly why the strategy works.
-  const feesEstUsd = Math.round(
-    (takerFeeUsdc(shares, upAsk, feeParams) + takerFeeUsdc(shares, downAsk, feeParams)) * 100,
-  ) / 100;
-  const lockedProfitUsd = Math.round((expectedPayout - totalCost - feesEstUsd) * 100) / 100;
-  const lockedProfitPct = Math.round((lockedProfitUsd / totalCost) * 10000) / 100;
+  let expectedPayout = Math.round(opp.shares * 1.00 * 100) / 100;
+  const feesEstUsd = Math.round(opp.feesEstUsd * 100) / 100;
+  let lockedProfitUsd = Math.round(opp.lockedProfitUsd * 100) / 100;
+  let lockedProfitPct = Math.round(opp.lockedProfitPct * 100) / 100;
 
   const pkg: ArbPackage = {
     packageId,
     symbol: market.symbol,
     slug: market.slug,
     windowKey: market.windowKey || `slug-${market.slug}`,
-    shares,
+    shares: opp.shares,
     upCost: costUp,
     downCost: costDown,
     totalCost,
@@ -171,27 +442,39 @@ export async function detectAndExecuteArbPackage({
       down: { outcome: 'down', tokenId: market.tokenIds?.down || null, entryPrice: downAsk, cost: costDown, shares, filled: false },
     },
   };
+  // Internal: residual depth consumption after LOCKED
+  (pkg as any)._opp = opp;
 
   savePackage(pkg);
 
-  // Execution: Dispatch both legs concurrently.
-  // Both legs share the same slug, so raise the per-slug concurrency cap for
-  // the duration of the atomic dispatch and restore it once — doing this inside
-  // Execute legs sequentially with monotonic nonces to prevent CLOB 400 nonce collisions
   const prevMax = botState?.config?.maxConcurrentPerSlug;
-  if (botState?.config) botState.config.maxConcurrentPerSlug = 2;
-  let upSuccess = false;
-  let downSuccess = false;
+  const slugCap = Math.max(2, maxPerSlug * 2);
+  if (botState?.config) botState.config.maxConcurrentPerSlug = slugCap;
+  let upShares = 0;
+  let downShares = 0;
 
   try {
-    const upRes = await executeArbLeg({ outcome: 'up', price: upAsk, cost: costUp, shares, pkg, market, executeTrade });
-    upSuccess = !!upRes;
+    upShares = await executeArbLeg({
+      outcome: 'up', price: upAsk, cost: costUp, shares, pkg, market, executeTrade, mode, cfg, botState, log,
+    });
 
-    if (upSuccess) {
-      // 40ms interval ensures distinct millisecond timestamps and strictly increasing nonces on CLOB
+    if (upShares > 0) {
       await new Promise((r) => setTimeout(r, 40));
-      const downRes = await executeArbLeg({ outcome: 'down', price: downAsk, cost: costDown, shares, pkg, market, executeTrade });
-      downSuccess = !!downRes;
+      // Size leg 2 from what leg 1 ACTUALLY matched (share parity).
+      const downCostActual = Math.round(upShares * downAsk * 100) / 100;
+      downShares = await executeArbLeg({
+        outcome: 'down',
+        price: downAsk,
+        cost: downCostActual,
+        shares: upShares,
+        pkg,
+        market,
+        executeTrade,
+        mode,
+        cfg,
+        botState,
+        log,
+      });
     }
   } catch (err) {
     if (log) log(`⚠️ Arb leg execution error: ${err.message}`, 'error', { packageId, error: err.message });
@@ -199,69 +482,80 @@ export async function detectAndExecuteArbPackage({
     if (botState?.config && prevMax != null) botState.config.maxConcurrentPerSlug = prevMax;
   }
 
+  // Record fills before branching so abortReason and flags agree.
+  pkg.legs.up.filled = upShares > 0;
+  pkg.legs.up.shares = upShares;
+  pkg.legs.down.filled = downShares > 0;
+  pkg.legs.down.shares = downShares;
+
   try {
-    if (upSuccess && downSuccess) {
-      pkg.legs.up.filled = true;
-      pkg.legs.down.filled = true;
+    if (upShares > 0 && downShares > 0) {
+      const matched = Math.min(upShares, downShares);
+      const residual = Math.round(Math.abs(upShares - downShares) * 1000) / 1000;
+      const legTolerance = Math.max(0.05, matched * 0.02);
+
+      if (residual > legTolerance) {
+        pkg.residualShares = residual;
+        pkg.residualOutcome = upShares > downShares ? 'up' : 'down';
+        if (log) {
+          log(
+            `⚠️ ARB LEG PARITY BREACH ${market.symbol} — UP ${upShares}sh vs DOWN ${downShares}sh · ${residual}sh unhedged ${pkg.residualOutcome.toUpperCase()}`,
+            'error',
+            { packageId, slug: market.slug, upShares, downShares, residual, tolerance: legTolerance },
+          );
+        }
+      }
+
+      pkg.shares = matched;
+      pkg.expectedPayout = Math.round(matched * 1.00 * 100) / 100;
+      costUp = Math.round(matched * upAsk * 100) / 100;
+      costDown = Math.round(matched * downAsk * 100) / 100;
+      totalCost = Math.round((costUp + costDown) * 100) / 100;
+      pkg.upCost = costUp;
+      pkg.downCost = costDown;
+      pkg.totalCost = totalCost;
+      lockedProfitUsd = Math.round((pkg.expectedPayout - totalCost - feesEstUsd) * 100) / 100;
+      lockedProfitPct = totalCost > 0 ? Math.round((lockedProfitUsd / totalCost) * 10000) / 100 : 0;
+      pkg.lockedProfitUsd = lockedProfitUsd;
+      pkg.lockedProfitPct = lockedProfitPct;
       pkg.status = 'LOCKED';
       savePackage(pkg);
 
       if (log) {
         log(
-          `📦 ATOMIC ARB PACKAGE LOCKED ${market.symbol} UP@$${upAsk.toFixed(3)} + DN@$${downAsk.toFixed(3)} = $${sum.toFixed(3)} · Net +$${lockedProfitUsd.toFixed(2)} (+${lockedProfitPct.toFixed(1)}%) · ${shares} sh/leg`,
+          `📦 ATOMIC ARB PACKAGE LOCKED ${market.symbol} UP@$${upAsk.toFixed(3)} + DN@$${downAsk.toFixed(3)} = $${sum.toFixed(3)} · Net +$${lockedProfitUsd.toFixed(2)} (+${lockedProfitPct.toFixed(1)}%) · ${matched} sh/leg`,
           'buy',
-          { packageId, slug: market.slug, totalCost, expectedPayout, lockedProfitUsd, lockedProfitPct },
+          { packageId, slug: market.slug, totalCost, expectedPayout: pkg.expectedPayout, lockedProfitUsd, lockedProfitPct },
         );
       }
 
-      // Instant On-Chain CTF Merge / Burn Trigger (Live Mode)
-      if (cfg?.instantCtfMerge !== false && mode === 'live' && (botState?.walletClient || botState?.signer)) {
-        const mergeRes = await executeCtfMerge({
-          conditionId: market.conditionId,
-          shares,
-          collateralToken: market.collateralToken,
-          walletClient: botState.walletClient || botState.signer,
-          publicClient: botState.publicClient,
+      // Capture locked edge without waiting for window settle (capital velocity).
+      // merge = CTF burn (live) / paper sim; spread_or_settle waits for bid reconvergence.
+      const exitMode = String(cfg?.arbExitMode || (cfg?.instantCtfMerge === false ? 'settlement' : 'merge'));
+      if (exitMode === 'merge' || (exitMode !== 'settlement' && cfg?.instantCtfMerge !== false)) {
+        await captureArbPackage({
+          pkg,
+          market,
+          mode,
+          cfg,
+          botState,
+          log,
+          adjustPaperCash,
+          saveTrade,
+          prefer: 'merge',
         });
-
-        if (mergeRes?.ok) {
-          pkg.status = 'MERGED';
-          pkg.mergedAt = Date.now();
-          pkg.mergeTxHash = mergeRes.txHash;
-          savePackage(pkg);
-
-          emitEvent('package.settlement', {
-            packageId,
-            symbol: market.symbol,
-            slug: market.slug,
-            action: 'instant_ctf_merge',
-            shares,
-            lockedProfitUsd,
-            txHash: mergeRes.txHash,
-            mode: 'live',
-          });
-
-          if (log) {
-            log(
-              `📦 INSTANT CTF MERGE: ${shares} sh burned on-chain → $${shares.toFixed(2)} USDC returned (tx: ${mergeRes.txHash})`,
-              'system',
-              { packageId, txHash: mergeRes.txHash, shares },
-            );
-          }
-        }
       }
 
       return pkg;
     }
 
-    // Emergency Rollback Handler if one leg failed
     pkg.status = 'ABORTED';
     pkg.unwoundAt = Date.now();
-    pkg.abortReason = `Leg execution mismatch: UP=${upSuccess ? 'OK' : 'FAIL'}, DOWN=${downSuccess ? 'OK' : 'FAIL'}`;
+    pkg.abortReason = `Leg execution mismatch: UP=${upShares > 0 ? 'OK' : 'FAIL'}, DOWN=${downShares > 0 ? 'OK' : 'FAIL'}`;
 
-    if (upSuccess && !downSuccess) {
+    if (upShares > 0 && downShares <= 0) {
       await unwindLeg({ outcome: 'up', pkg, market, mode, cfg, botState, log, adjustPaperCash, saveTrade });
-    } else if (downSuccess && !upSuccess) {
+    } else if (downShares > 0 && upShares <= 0) {
       await unwindLeg({ outcome: 'down', pkg, market, mode, cfg, botState, log, adjustPaperCash, saveTrade });
     }
 
@@ -279,7 +573,12 @@ export async function detectAndExecuteArbPackage({
   }
 }
 
-async function executeArbLeg({ outcome, price, cost, shares, pkg, market, executeTrade }) {
+/**
+ * @returns {number} matched shares (0 on failure)
+ */
+async function executeArbLeg({
+  outcome, price, cost, shares, pkg, market, executeTrade, mode = 'paper', cfg, botState, log,
+}) {
   const plan = {
     symbol: market.symbol,
     slug: market.slug,
@@ -292,11 +591,9 @@ async function executeArbLeg({ outcome, price, cost, shares, pkg, market, execut
     packageId: pkg.packageId,
     isArbLeg: true,
     holdToSettle: true,
+    exitMode: String(cfg?.arbExitMode || 'merge') === 'settlement' ? 'settlement' : 'arb_capture',
+    planMethod: 'arb_hold',
     adaptiveSlEnabled: false,
-    slPct: 999,
-    targetTp: 999,
-    partialTpPct: 999,
-    trailActivatePct: 999,
   };
 
   const pending = {
@@ -312,75 +609,68 @@ async function executeArbLeg({ outcome, price, cost, shares, pkg, market, execut
     plan,
   };
 
-  // Backlog item 27. This used to be `!!(await executeTrade(pending))`, and
-  // every return path of executePendingTrade is an *object* — a refusal
-  // (`{ ok: false, error: 'max open positions' }`) is as truthy as a fill
-  // (`{ ok: true, position }`). So the boolean carried no information: a
-  // declined leg was recorded as filled, the package locked with both legs
-  // marked `filled: true`, and the rollback below was unreachable for anything
-  // short of a thrown exception.
-  //
-  // Read `ok` explicitly. A refusal is not a result.
   const res = await executeTrade(pending);
-  return res?.ok === true;
+  if (res?.ok !== true) return 0;
+
+  const filled = Number(res.position?.shares ?? res.shares ?? shares);
+  return Number.isFinite(filled) && filled > 0 ? filled : 0;
 }
 
-/**
- * Sell a filled leg straight back out when its sibling did not fill.
- *
- * Reachable for the first time as of the item 27 fix — before that only a
- * *thrown* executeTrade reached it, so every ordinary refusal left the leg
- * naked. Two things were wrong with it in consequence, both fixed here because
- * shipping traffic into an unexercised path is how the `cccce43` class of bug
- * happens:
- *
- *   1. It refunded the entry fee, modelling the round trip as free. A rollback
- *      is a taker buy followed by a taker sell — it costs both fees.
- *   2. It closed the position without recording a trade, so the close was
- *      invisible to history. `saveTrade` was already destructured in this
- *      module's signature and never called.
- *
- * The two are coupled: the cash reconciler derives realized P/L from
- * `feesPaid` (item 23), so recording a trade while still refunding the fee
- * would make the ledger and the recompute disagree by exactly that fee. They
- * have to change together, and the invariant that catches it is
- * "cash reconciles to trades + fees + open cost".
- */
 async function unwindLeg({ outcome, pkg, market, mode, cfg, botState, log, adjustPaperCash, saveTrade }) {
   const pos = botState.positions.find((p) => p.packageId === pkg.packageId && p.outcome === outcome && !p.closed);
-  if (!pos) return;
+  if (!pos) return { ok: false, closed: false, missing: true };
 
   const shares = Number(pos.shares || 0);
   const price = Number(pos.entryPrice || 0);
   const feeOn = cfg?.simulateClobFees !== false;
-  // 'arb_rollback' is deliberately not in FEE_FREE_EXIT_REASONS — unwinding is
-  // a real mid-window sell, unlike settlement/redemption which is fee-free.
   const pack = closeProceedsWithFee(shares, price, cfg?.feeCategory || 'crypto', 'arb_rollback');
   const exitFee = feeOn ? pack.fee : 0;
   const entryFee = Number(pos.entryFee || 0);
 
-  // Live Mode: Execute an immediate Market Sell on CLOB so capital is returned to cash
   if (mode === 'live' && pos.tokenId) {
     try {
-      const { placeMarketSell } = await import('./trade.js');
+      const { placeMarketSell, sellFloor } = await import('./trade.js');
+      const mark = Number(pos.currentPrice || pos.entryPrice || 0);
       const sellRes = await placeMarketSell({
         tokenId: pos.tokenId,
         shares,
+        minPrice: sellFloor(mark, { tickSize: pos.tickSize || '0.01' }),
+        markPrice: mark,
         negRisk: !!pos.negRisk,
         tickSize: pos.tickSize || '0.01',
       });
+      pos.unwindAttempts = 0;
+      if (sellRes?.fillPrice > 0) {
+        pos.exitPrice = sellRes.fillPrice;
+      }
       if (log) {
         log(`⚡ LIVE ARB UNWIND: Sold ${shares}sh back to CLOB cash (order: ${sellRes?.id || 'ok'})`, 'system', { orderId: sellRes?.id });
       }
     } catch (err) {
+      const maxAttempts = Math.max(1, Number(cfg?.arbUnwindMaxAttempts ?? 3));
+      pos.unwindAttempts = Number(pos.unwindAttempts || 0) + 1;
+      pos.lastUnwindError = String(err?.message || err).slice(0, 200);
+      pos.lastUnwindAt = Date.now();
+      pos.unwindBlocked = pos.unwindAttempts >= maxAttempts;
+
       if (log) {
-        log(`⚠️ LIVE ARB UNWIND FAILED: ${err.message}`, 'error', { err: err.message });
+        log(
+          pos.unwindBlocked
+            ? `🛑 LIVE ARB UNWIND GAVE UP after ${pos.unwindAttempts} attempts — ${pos.symbol} ${outcome.toUpperCase()} ${shares}sh STILL HELD · ${pos.lastUnwindError}`
+            : `⚠️ LIVE ARB UNWIND FAILED (attempt ${pos.unwindAttempts}/${maxAttempts}) — position left open: ${pos.lastUnwindError}`,
+          'error',
+          {
+            packageId: pkg.packageId, slug: market?.slug, outcome,
+            attempts: pos.unwindAttempts, blocked: pos.unwindBlocked, err: pos.lastUnwindError,
+          },
+        );
       }
+      return { ok: false, closed: false, attempts: pos.unwindAttempts, blocked: pos.unwindBlocked };
     }
   }
 
   pos.closed = true;
-  pos.exitPrice = price;
+  pos.exitPrice = pos.exitPrice || price;
   pos.exitReason = 'arb_rollback';
   pos.exitFee = exitFee;
   pos.feesPaid = Math.round((entryFee + exitFee) * 1e5) / 1e5;
@@ -402,27 +692,10 @@ async function unwindLeg({ outcome, pkg, market, mode, cfg, botState, log, adjus
       { packageId: pkg.packageId, slug: market?.slug, outcome, entryFee, exitFee, pnl: pos.pnl },
     );
   }
+
+  return { ok: true, closed: true };
 }
 
-/**
- * Reconcile packages stuck at PENDING_FILL (backlog item 9).
- *
- * A package is written PENDING_FILL, both legs are dispatched, and the block
- * after `Promise.allSettled` promotes it to LOCKED or ABORTED. A process
- * restart between those two points leaves it PENDING_FILL forever — and
- * `getActivePackages` counts PENDING_FILL toward `maxArbPackages`
- * (`arbPersistence.ts`), so the record permanently consumes a slot nothing can
- * free. Observed in production: `pkg-btc-msyglw8m`, 40.5 hours, one naked UP leg.
- *
- * Leg presence is derived from positions and trades rather than from
- * `legs.*.filled`, on purpose. Those flags are written *after* dispatch, so on
- * exactly the interrupted path this exists to repair they are still `false`
- * while the fill is real — trusting them would mean discarding a live position.
- *
- * `minAgeMs` is the safety interlock: it must be comfortably longer than a
- * dispatch, or this could abort a package whose legs are still in flight. A
- * live CLOB round trip is seconds; the default is two minutes.
- */
 export async function reconcilePendingPackages({
   mode = 'paper',
   positions = [],
@@ -435,19 +708,39 @@ export async function reconcilePendingPackages({
   saveTrade = null,
 }: any = {}) {
   const now = Date.now();
-  const stuck = loadPackages().filter((p) => (
-    p.mode === mode
-    && p.status === 'PENDING_FILL'
-    && (now - Number(p.createdAt || 0)) > minAgeMs
+  const all = loadPackages().filter((p) => (
+    p.mode === mode && (now - Number(p.createdAt || 0)) > minAgeMs
   ));
-  if (!stuck.length) return { checked: 0, locked: 0, aborted: 0, discarded: 0 };
+  const stuck = all.filter((p) => p.status === 'PENDING_FILL');
+  if (!stuck.length) {
+    // Also retry ABORTED packages that still have an open orphan leg
+    const abortedOrphans = all.filter((p) => p.status === 'ABORTED');
+    let retried = 0;
+    for (const pkg of abortedOrphans) {
+      const openLeg = ['up', 'down'].find((o) => positions.some(
+        (pos) => pos.packageId === pkg.packageId && pos.outcome === o && !pos.closed,
+      ));
+      if (!openLeg) continue;
+      const pos = positions.find((p) => p.packageId === pkg.packageId && p.outcome === openLeg && !p.closed);
+      if (pos?.unwindBlocked) continue;
+      try {
+        await unwindLeg({
+          outcome: openLeg, pkg, market: { slug: pkg.slug }, mode, cfg, botState, log, adjustPaperCash, saveTrade,
+        });
+        retried += 1;
+      } catch (err) {
+        if (log) log(`⚠️ ARB RECONCILE orphan unwind failed ${pkg.packageId}: ${err?.message}`, 'error');
+      }
+    }
+    return { checked: 0, locked: 0, aborted: 0, discarded: 0, orphanRetries: retried };
+  }
 
   const present = (pkg, outcome) => (
     positions.some((p) => p.packageId === pkg.packageId && p.outcome === outcome)
     || trades.some((t) => t.packageId === pkg.packageId && t.outcome === outcome)
   );
 
-  const result = { checked: stuck.length, locked: 0, aborted: 0, discarded: 0 };
+  const result = { checked: stuck.length, locked: 0, aborted: 0, discarded: 0, orphanRetries: 0 };
 
   for (const pkg of stuck) {
     const upOk = present(pkg, 'up');
@@ -455,7 +748,6 @@ export async function reconcilePendingPackages({
     const ageH = ((now - Number(pkg.createdAt || 0)) / 3_600_000).toFixed(1);
 
     if (upOk && downOk) {
-      // Both fills landed; only the bookkeeping was lost. This is a real hedge.
       pkg.legs.up.filled = true;
       pkg.legs.down.filled = true;
       pkg.status = 'LOCKED';
@@ -466,19 +758,14 @@ export async function reconcilePendingPackages({
     }
 
     if (upOk !== downOk) {
-      // Half a hedge. Unwind the survivor rather than hold a naked leg that
-      // item 8 would later settle at a fabricated $0.50.
       const filledLeg = upOk ? 'up' : 'down';
       pkg.status = 'ABORTED';
       pkg.unwoundAt = now;
       pkg.abortReason = `Reconciled after ${ageH}h PENDING_FILL: only the ${filledLeg.toUpperCase()} leg filled`;
+      pkg.legs[filledLeg].filled = true;
       savePackage(pkg);
       result.aborted += 1;
       if (log) log(`🔧 ARB RECONCILE ${pkg.symbol} ${pkg.packageId} → ABORTED · naked ${filledLeg.toUpperCase()} leg after ${ageH}h — unwinding`, 'sl', { packageId: pkg.packageId, slug: pkg.slug });
-      // Awaited, not fired and forgotten: the caller needs to know the leg is
-      // actually closed before it reports capacity as freed, and a caller that
-      // cannot observe completion cannot be tested deterministically either.
-      // Caught per package so one bad unwind does not strand the rest.
       try {
         await unwindLeg({ outcome: filledLeg, pkg, market: { slug: pkg.slug }, mode, cfg, botState, log, adjustPaperCash, saveTrade });
       } catch (err) {
@@ -487,9 +774,6 @@ export async function reconcilePendingPackages({
       continue;
     }
 
-    // Neither leg exists. Nothing was bought, so there is nothing to unwind —
-    // ABORTED rather than deleted, so the attempt stays auditable. Either way
-    // it stops counting against capacity.
     pkg.status = 'ABORTED';
     pkg.unwoundAt = now;
     pkg.abortReason = `Reconciled after ${ageH}h PENDING_FILL: neither leg filled`;
@@ -502,8 +786,297 @@ export async function reconcilePendingPackages({
 }
 
 /**
- * Scans active packages and transitions settled ones on market window completion.
+ * Net proceeds if we dual-sell both legs into current bids (after exit fees).
+ * Prefer CTF merge when available — merge returns $1/share with no CLOB exit fee.
  */
+export function evaluateSpreadCapture({
+  pkg,
+  bidUp,
+  bidDown,
+  feeParams = 'crypto',
+  minBidSum = 0.985,
+  minCaptureFrac = 0.70,
+}) {
+  const shares = Number(pkg?.shares || 0);
+  const totalCost = Number(pkg?.totalCost || 0);
+  const locked = Number(pkg?.lockedProfitUsd || 0);
+  const entryFees = Number(pkg?.feesEstUsd || 0);
+  if (!(shares > 0) || !(totalCost > 0)) return { ok: false, reason: 'bad_pkg' };
+
+  const up = Number(bidUp || 0);
+  const down = Number(bidDown || 0);
+  const bidSum = up + down;
+  if (!(up > 0.01 && down > 0.01)) return { ok: false, reason: 'no_bids', bidSum };
+
+  const feeUp = takerFeeUsdc(shares, up, feeParams);
+  const feeDown = takerFeeUsdc(shares, down, feeParams);
+  const exitFees = feeUp + feeDown;
+  const gross = shares * bidSum;
+  const netProceeds = Math.round((gross - exitFees) * 100) / 100;
+  const settleProceeds = Math.round(shares * 1.0 * 100) / 100;
+  const earlyPnl = Math.round((netProceeds - totalCost - entryFees) * 100) / 100;
+  const settlePnl = Math.round((settleProceeds - totalCost - entryFees) * 100) / 100;
+  const captureFrac = settlePnl > 0 ? earlyPnl / settlePnl : (earlyPnl > 0 ? 1 : 0);
+
+  const ok = bidSum >= Number(minBidSum)
+    && earlyPnl > 0
+    && captureFrac >= Number(minCaptureFrac)
+    && earlyPnl >= Math.min(0.25, Math.max(0.05, locked * 0.25));
+
+  return {
+    ok,
+    reason: ok ? 'capture' : (bidSum < minBidSum ? 'bid_sum_low' : 'edge_thin'),
+    bidSum,
+    netProceeds,
+    settleProceeds,
+    earlyPnl,
+    settlePnl,
+    captureFrac,
+    exitFees,
+  };
+}
+
+function openPackageLegs(botState, packageId) {
+  return (botState?.positions || []).filter(
+    (p) => p.packageId === packageId && !p.closed,
+  );
+}
+
+/** Close both open legs at $0.50 (pair redeems $1) — fee-free merge/settle sim. */
+async function closePairAtRedeem({
+  pkg,
+  botState,
+  adjustPaperCash,
+  saveTrade,
+  exitReason = 'arb_merge',
+  exitPrice = 0.5,
+  log,
+}) {
+  const legs = openPackageLegs(botState, pkg.packageId);
+  if (legs.length < 2) return { ok: false, closed: 0, reason: 'missing_legs' };
+
+  let closed = 0;
+  let netPnl = 0;
+  for (const pos of legs) {
+    const shares = Number(pos.shares || 0);
+    if (!(shares > 0)) continue;
+    const entry = Number(pos.entryPrice || 0);
+    const entryFee = Number(pos.entryFee || 0);
+    const proceeds = Math.round(shares * exitPrice * 100) / 100;
+    pos.exitPrice = exitPrice;
+    pos.closed = true;
+    pos.exitReason = exitReason;
+    pos.exitFee = 0;
+    pos.feesPaid = Math.round(entryFee * 1e5) / 1e5;
+    pos.pnl = Math.round(((exitPrice - entry) * shares - entryFee) * 100) / 100;
+    pos.unrealizedPnl = 0;
+    pos.gainPct = entry > 0 ? ((exitPrice - entry) / entry) * 100 : 0;
+    netPnl += pos.pnl;
+    if (pos.mode === 'paper' && typeof adjustPaperCash === 'function') {
+      adjustPaperCash(proceeds, `${exitReason.toUpperCase()} ${pos.symbol} ${String(pos.outcome || '').toUpperCase()}`);
+    }
+    if (typeof saveTrade === 'function') {
+      saveTrade({ ...pos, timestamp: Date.now(), exitReason });
+    }
+    closed += 1;
+  }
+
+  if (closed < 2) return { ok: false, closed, reason: 'partial_close', netPnl };
+
+  if (log) {
+    log(
+      `📦 ARB ${exitReason.toUpperCase()} ${pkg.symbol} · ${pkg.shares} sh/leg → $${Number(pkg.expectedPayout).toFixed(2)} · net ~$${netPnl.toFixed(2)}`,
+      'tp',
+      { packageId: pkg.packageId, slug: pkg.slug, netPnl, exitReason },
+    );
+  }
+  return { ok: true, closed, netPnl };
+}
+
+/**
+ * Realize locked arb edge without waiting for window settle.
+ * prefer 'merge' → CTF (live) or paper $1 redeem; 'spread' → dual bid sell when book reconverges.
+ */
+export async function captureArbPackage({
+  pkg,
+  market = null,
+  mode = 'paper',
+  cfg = {},
+  botState,
+  log,
+  adjustPaperCash,
+  saveTrade,
+  prefer = 'merge',
+  depth = null,
+  prices = null,
+}) {
+  if (!pkg || pkg.status !== 'LOCKED') return { ok: false, reason: 'not_locked' };
+
+  const exitMode = String(cfg?.arbExitMode || 'merge');
+  if (exitMode === 'settlement') return { ok: false, reason: 'settlement_only' };
+
+  const wantMerge = prefer === 'merge' || exitMode === 'merge';
+
+  if (wantMerge && mode === 'live' && (botState?.walletClient || botState?.signer) && market?.conditionId) {
+    const mergeRes = await executeCtfMerge({
+      conditionId: market.conditionId,
+      shares: Number(pkg.shares || 0),
+      collateralToken: market.collateralToken,
+      walletClient: botState.walletClient || botState.signer,
+      publicClient: botState.publicClient,
+    });
+    if (mergeRes?.ok) {
+      await closePairAtRedeem({
+        pkg, botState, adjustPaperCash, saveTrade, exitReason: 'arb_merge', exitPrice: 0.5, log,
+      });
+      pkg.status = 'MERGED';
+      pkg.mergedAt = Date.now();
+      pkg.mergeTxHash = mergeRes.txHash;
+      savePackage(pkg);
+      emitEvent('package.settlement', {
+        packageId: pkg.packageId,
+        symbol: pkg.symbol,
+        slug: pkg.slug,
+        action: 'instant_ctf_merge',
+        shares: pkg.shares,
+        lockedProfitUsd: pkg.lockedProfitUsd,
+        txHash: mergeRes.txHash,
+        mode: 'live',
+      });
+      if (log) {
+        log(
+          `📦 INSTANT CTF MERGE: ${pkg.shares} sh burned on-chain → $${Number(pkg.shares).toFixed(2)} USDC (tx: ${mergeRes.txHash})`,
+          'system',
+          { packageId: pkg.packageId, txHash: mergeRes.txHash },
+        );
+      }
+      return { ok: true, method: 'ctf_merge', pkg };
+    }
+  }
+
+  if (wantMerge && mode === 'paper') {
+    const closed = await closePairAtRedeem({
+      pkg, botState, adjustPaperCash, saveTrade, exitReason: 'arb_merge', exitPrice: 0.5, log,
+    });
+    if (closed.ok) {
+      pkg.status = 'MERGED';
+      pkg.mergedAt = Date.now();
+      pkg.mergeMethod = 'paper_ctf_sim';
+      savePackage(pkg);
+      emitEvent('package.settlement', {
+        packageId: pkg.packageId,
+        symbol: pkg.symbol,
+        slug: pkg.slug,
+        action: 'paper_ctf_merge',
+        shares: pkg.shares,
+        lockedProfitUsd: pkg.lockedProfitUsd,
+        mode: 'paper',
+      });
+      return { ok: true, method: 'paper_merge', pkg, netPnl: closed.netPnl };
+    }
+  }
+
+  if (exitMode === 'spread_or_settle' || prefer === 'spread') {
+    const bidUp = Number(depth?.up?.bestBid ?? prices?.up ?? 0);
+    const bidDown = Number(depth?.down?.bestBid ?? prices?.down ?? 0);
+    const feeParams = (cfg.useClobMarketFees !== false && peekClobFeeParams(pkg.legs?.up?.tokenId))
+      || (cfg.feeCategory || 'crypto');
+    const ev = evaluateSpreadCapture({
+      pkg,
+      bidUp,
+      bidDown,
+      feeParams,
+      minBidSum: Number(cfg.arbSpreadMinBidSum ?? 0.985),
+      minCaptureFrac: Number(cfg.arbSpreadMinCaptureFrac ?? 0.70),
+    });
+    if (!ev.ok) return { ok: false, reason: ev.reason, eval: ev };
+
+    const legs = openPackageLegs(botState, pkg.packageId);
+    if (legs.length < 2) return { ok: false, reason: 'missing_legs' };
+
+    let netPnl = 0;
+    for (const pos of legs) {
+      const outcome = String(pos.outcome || '').toLowerCase();
+      const fill = outcome === 'up' ? bidUp : bidDown;
+      const shares = Number(pos.shares || 0);
+      const pack = closeProceedsWithFee(shares, fill, feeParams, 'arb_spread_capture');
+      const entryFee = Number(pos.entryFee || 0);
+      pos.exitPrice = fill;
+      pos.closed = true;
+      pos.exitReason = 'arb_spread_capture';
+      pos.exitFee = pack.fee;
+      pos.feesPaid = Math.round((entryFee + pack.fee) * 1e5) / 1e5;
+      pos.pnl = Math.round(((fill - Number(pos.entryPrice || 0)) * shares - entryFee - pack.fee) * 100) / 100;
+      netPnl += pos.pnl;
+      if (pos.mode === 'paper' && typeof adjustPaperCash === 'function') {
+        adjustPaperCash(pack.net, `ARB_SPREAD ${pos.symbol} ${String(pos.outcome || '').toUpperCase()}`);
+      }
+      if (typeof saveTrade === 'function') {
+        saveTrade({ ...pos, timestamp: Date.now(), exitReason: 'arb_spread_capture' });
+      }
+    }
+
+    pkg.status = 'SETTLED';
+    pkg.settledAt = Date.now();
+    pkg.settleMethod = 'spread_capture';
+    pkg.realizedPnlUsd = Math.round(netPnl * 100) / 100;
+    savePackage(pkg);
+    if (log) {
+      log(
+        `📦 ARB SPREAD CAPTURE ${pkg.symbol} bidΣ=${ev.bidSum.toFixed(3)} · net +$${netPnl.toFixed(2)} (${(ev.captureFrac * 100).toFixed(0)}% of settle edge)`,
+        'tp',
+        { packageId: pkg.packageId, ...ev, netPnl },
+      );
+    }
+    return { ok: true, method: 'spread', pkg, netPnl, eval: ev };
+  }
+
+  return { ok: false, reason: 'no_capture_path' };
+}
+
+/**
+ * Retry merge / spread capture for LOCKED packages still holding both legs.
+ * Called from arbHousekeeping so failed live merges and delayed paper closes clear capacity.
+ */
+export async function captureLockedArbPackages({
+  mode = 'paper',
+  cfg = {},
+  botState,
+  markets = [],
+  log,
+  adjustPaperCash,
+  saveTrade,
+  depthBySlug = null,
+}) {
+  const exitMode = String(cfg?.arbExitMode || 'merge');
+  if (exitMode === 'settlement') return { attempted: 0, captured: 0 };
+
+  const locked = loadPackages().filter((p) => p.mode === mode && p.status === 'LOCKED');
+  let captured = 0;
+  for (const pkg of locked) {
+    const legs = openPackageLegs(botState, pkg.packageId);
+    if (legs.length < 2) continue;
+    const market = (markets || []).find((m) => m.slug === pkg.slug) || null;
+    const depth = depthBySlug?.[pkg.slug] || null;
+    const prefer = exitMode === 'spread_or_settle' ? 'spread' : 'merge';
+    const res = await captureArbPackage({
+      pkg,
+      market,
+      mode,
+      cfg,
+      botState,
+      log,
+      adjustPaperCash,
+      saveTrade,
+      prefer,
+      depth,
+      prices: market?.prices || null,
+    });
+    if (res?.ok) captured += 1;
+  }
+  return { attempted: locked.length, captured };
+}
+
 export function syncPackageSettlements(trades = [], mode = 'paper') {
   const packages = loadPackages().filter((p) => p.mode === mode && p.status === 'LOCKED');
   let updated = false;
@@ -521,17 +1094,12 @@ export function syncPackageSettlements(trades = [], mode = 'paper') {
   return updated;
 }
 
-/**
- * Computes package-level metrics for dashboard header KPI card.
- */
 export function getArbPackageMetrics(mode = 'paper', trades = []) {
   const all = loadPackages().filter((p) => p.mode === mode);
   const settled = all.filter((p) => p.status === 'SETTLED' || p.status === 'MERGED');
   const locked = all.filter((p) => p.status === 'LOCKED');
   const aborted = all.filter((p) => p.status === 'ABORTED');
 
-  // Realized PnL is truth: sum the closed leg trades when available (covers
-  // force-closed / rolled-back legs), falling back to the nominal entry edge.
   const realizedFor = (pkg) => {
     const legTrades = trades.filter((t) => t.packageId === pkg.packageId && t.closed && t.pnl != null);
     if (legTrades.length >= 2) {

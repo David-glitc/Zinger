@@ -62,8 +62,9 @@ export const POLICIES = Object.freeze({
   }),
   arb: Object.freeze({
     engine: 'arb',
-    // A leg is half a hedge that redeems to exactly $1.00 as a pair. Any
-    // mid-window exit destroys the edge instead of protecting it.
+    // Individual legs still skip TP/SL/trail — closing one side alone destroys
+    // the hedge. Paired capture (CTF merge / dual sell) runs on the package
+    // path in arbEngine, not through this predicate.
     holdsToSettlement: true,
     slotKey: 'maxArbPackages',
     slotDefault: 4,

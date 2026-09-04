@@ -21,11 +21,17 @@ export const POLY_SCAN_INTERVAL_MS = 250;
 export const ASSETS = [
   { symbol: 'BTC', duration: '5m', slugPrefix: 'btc-updown-5m', windowSeconds: 300 },
   { symbol: 'ETH', duration: '5m', slugPrefix: 'eth-updown-5m', windowSeconds: 300 },
+  { symbol: 'SOL', duration: '5m', slugPrefix: 'sol-updown-5m', windowSeconds: 300 },
+  { symbol: 'XRP', duration: '5m', slugPrefix: 'xrp-updown-5m', windowSeconds: 300 },
+  { symbol: 'DOGE', duration: '5m', slugPrefix: 'doge-updown-5m', windowSeconds: 300 },
 ];
 
 export const ASSETS_15M = [
   { symbol: 'BTC', duration: '15m', slugPrefix: 'btc-updown-15m', windowSeconds: 900 },
   { symbol: 'ETH', duration: '15m', slugPrefix: 'eth-updown-15m', windowSeconds: 900 },
+  { symbol: 'SOL', duration: '15m', slugPrefix: 'sol-updown-15m', windowSeconds: 900 },
+  { symbol: 'XRP', duration: '15m', slugPrefix: 'xrp-updown-15m', windowSeconds: 900 },
+  { symbol: 'DOGE', duration: '15m', slugPrefix: 'doge-updown-15m', windowSeconds: 900 },
 ];
 
 export const ASSETS_30M = [
@@ -41,10 +47,25 @@ export const ASSETS_1H = [
 export const ASSETS_4H = [
   { symbol: 'BTC', duration: '4h', slugPrefix: 'btc-updown-4h', windowSeconds: 14400 },
   { symbol: 'ETH', duration: '4h', slugPrefix: 'eth-updown-4h', windowSeconds: 14400 },
+  { symbol: 'SOL', duration: '4h', slugPrefix: 'sol-updown-4h', windowSeconds: 14400 },
+  { symbol: 'XRP', duration: '4h', slugPrefix: 'xrp-updown-4h', windowSeconds: 14400 },
+  { symbol: 'DOGE', duration: '4h', slugPrefix: 'doge-updown-4h', windowSeconds: 14400 },
 ];
 
-/** All duration books the bot can discover (Gamma lists 5m, 15m, and 4h epoch series). */
+/** Durations with live Gamma slug series (btc/eth/sol/xrp/doge-updown-{5m|15m|4h}-{epoch}). 30m/1h prefixes do not resolve. */
+export const GAMMA_LIVE_DURATIONS = ['5m', '15m', '4h'];
+
+/** All duration books the bot can discover when Gamma lists them. */
 export const ALL_ASSETS = [...ASSETS, ...ASSETS_15M, ...ASSETS_4H, ...ASSETS_30M, ...ASSETS_1H];
+
+/** Spot tickers (Binance) keyed by bot symbol. */
+export const SPOT_SYMBOLS = {
+  BTC: 'BTCUSDT',
+  ETH: 'ETHUSDT',
+  SOL: 'SOLUSDT',
+  XRP: 'XRPUSDT',
+  DOGE: 'DOGEUSDT',
+};
 
 export const DURATION_SECONDS = {
   '5m': 300,
@@ -57,6 +78,13 @@ export const DURATION_SECONDS = {
 
 export function assetsForDurations(durations = ['5m', '15m', '4h']) {
   const want = new Set((durations || []).map((d) => String(d).toLowerCase()));
+  const live = new Set(GAMMA_LIVE_DURATIONS);
+  const unsupported = [...want].filter((d) => !live.has(d));
+  if (unsupported.length && typeof console !== 'undefined') {
+    console.warn(
+      `[markets] enabledDurations ${unsupported.join(', ')} have no Gamma slug series — use ${GAMMA_LIVE_DURATIONS.join(', ')}`,
+    );
+  }
   return ALL_ASSETS.filter((a) => want.has(String(a.duration).toLowerCase()));
 }
 
@@ -73,6 +101,12 @@ export function windowSecondsForDuration(duration) {
 export function getCurrentSlug(symbolPrefix, windowSeconds = 300) {
   const now = Math.floor(Date.now() / 1000);
   const interval = Math.floor(now / windowSeconds) * windowSeconds;
+  return `${symbolPrefix}-${interval}`;
+}
+
+export function getPreviousSlug(symbolPrefix, windowSeconds = 300) {
+  const now = Math.floor(Date.now() / 1000);
+  const interval = Math.floor(now / windowSeconds) * windowSeconds - windowSeconds;
   return `${symbolPrefix}-${interval}`;
 }
 

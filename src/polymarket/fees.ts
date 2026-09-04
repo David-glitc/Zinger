@@ -35,6 +35,9 @@ export const FEE_FREE_EXIT_REASONS = Object.freeze(new Set([
   'redeem',
   'resolution',
   'orphan_settle',
+  // Complementary UP+DOWN burned via CTF merge (live) or paper sim — not a CLOB sell
+  'arb_merge',
+  'arb_spread_capture',
 ]));
 
 const feeCache = new Map(); // tokenId -> { rate, exponent, feeRateBps, takerOnly, at }

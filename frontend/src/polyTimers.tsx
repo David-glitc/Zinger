@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 
 export const CLOCK_TICK_MS = 16;
-export const POLY_POLL_MS = 250;
+export const POLY_POLL_MS = 2000;
 
 /** Format milliseconds as M:SS.mmm */
 export function fmtCountdownMs(totalMs) {

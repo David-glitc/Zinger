@@ -10,11 +10,13 @@ import {
   History,
   LineChart,
   ListOrdered,
+  Eye,
   Play,
   RefreshCw,
   RotateCcw,
   Save,
   Settings2,
+  SlidersHorizontal,
   Square,
   Trash2,
   Wallet,
@@ -99,9 +101,12 @@ import SpotChart from '@/components/SpotChart'
 import NotificationsPanel from '@/components/NotificationsPanel'
 import LiveTickStrip from '@/components/LiveTickStrip'
 import SystemFlow from '@/components/SystemFlow'
+import ArbDesk from '@/components/ArbDesk'
 import MlBay from '@/components/MlBay'
 import AccountPage from '@/pages/AccountPage'
 import ProcessPage from '@/pages/ProcessPage'
+import ObservabilityPage from '@/pages/ObservabilityPage'
+import TunePage from '@/pages/TunePage'
 
 function addr(a) {
   return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '—'
@@ -130,6 +135,68 @@ function moneyCompact(n) {
   if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(2)}M`
   if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}k`
   return `${sign}$${a.toFixed(0)}`
+}
+
+/** Group arb UP+DOWN legs under one package card (bank the pair). */
+function bankBotPositions(botPositions = [], packageMeta = []) {
+  const metaById = new Map((packageMeta || []).map((p) => [p.packageId, p]))
+  const byPkg = new Map()
+  const singles = []
+  for (const p of botPositions || []) {
+    const id = p.packageId
+    if (id) {
+      if (!byPkg.has(id)) byPkg.set(id, [])
+      byPkg.get(id).push(p)
+    } else {
+      singles.push(p)
+    }
+  }
+  const packages = [...byPkg.entries()].map(([packageId, legs]) => {
+    const meta = metaById.get(packageId)
+    const netPnl = legs.reduce((s, l) => s + Number(l.unrealizedPnl ?? l.pnl ?? 0), 0)
+    const cost = legs.reduce(
+      (s, l) => s + Number(l.costBasis ?? (Number(l.shares || 0) * Number(l.entryPrice || 0)) || 0),
+      0,
+    )
+    return {
+      packageId,
+      symbol: legs[0]?.symbol || meta?.symbol,
+      slug: legs[0]?.slug || meta?.slug,
+      legs,
+      netPnl,
+      cost,
+      lockedProfitUsd: Number(meta?.lockedProfitUsd ?? 0),
+      pkgStatus: meta?.status || 'LOCKED',
+      gap: meta?.gap,
+    }
+  })
+  return { packages, singles }
+}
+
+/** History: one row per arb package (net both legs). */
+function bankHistoryRows(trades = []) {
+  const byPkg = new Map()
+  const singles = []
+  for (const t of trades || []) {
+    if (t.packageId) {
+      if (!byPkg.has(t.packageId)) byPkg.set(t.packageId, [])
+      byPkg.get(t.packageId).push(t)
+    } else {
+      singles.push({ kind: 'single', t, timestamp: Number(t.timestamp || t.entryTime || 0) })
+    }
+  }
+  const packages = [...byPkg.entries()].map(([packageId, legs]) => ({
+    kind: 'package',
+    packageId,
+    legs,
+    symbol: legs[0]?.symbol,
+    mode: legs[0]?.mode,
+    netPnl: legs.reduce((s, l) => s + Number(l.pnl || 0), 0),
+    exitReason: legs.map((l) => l.exitReason).filter(Boolean)[0] || 'arb',
+    timestamp: Math.max(...legs.map((l) => Number(l.timestamp || l.entryTime || 0))),
+    slug: legs[0]?.slug,
+  }))
+  return [...packages, ...singles].sort((a, b) => b.timestamp - a.timestamp)
 }
 
 function marketBook(m) {
@@ -348,28 +415,36 @@ function BehaviorForm({
   onRestoreSnapshot,
   onResetPaper,
   onResetLive,
+  liveSave = false,
 }) {
   const [draft, setDraft] = useState(cfg)
   const [dirty, setDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState('idle')
+  const saveTimer = useRef(null)
+  const saveSeq = useRef(0)
 
   useEffect(() => {
-    if (!dirty) setDraft(cfg)
-  }, [cfg, dirty])
+    if (!dirty && saveStatus !== 'saving') setDraft(cfg)
+  }, [cfg, dirty, saveStatus])
 
-  const patch = (partial) => {
-    setDirty(true)
-    setDraft((prev) => ({ ...prev, ...partial }))
+  const queueLiveSave = (next) => {
+    clearTimeout(saveTimer.current)
+    const id = ++saveSeq.current
+    setSaveStatus('saving')
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await onSave(next, { silent: true })
+        if (saveSeq.current === id) {
+          setSaveStatus('saved')
+          setDirty(false)
+        }
+      } catch {
+        if (saveSeq.current === id) setSaveStatus('error')
+      }
+    }, 450)
   }
 
-  const switchDraftMode = (nextMode) => {
-    const selected = nextMode === 'live' ? profiles?.live : profiles?.paper
-    setDirty(true)
-    setDraft((prev) => ({
-      ...prev,
-      ...(selected || {}),
-      mode: nextMode,
-    }))
-  }
+  useEffect(() => () => clearTimeout(saveTimer.current), [])
 
   const normalizeDraft = (currentDraft) => {
     const out = { ...currentDraft }
@@ -379,6 +454,27 @@ function BehaviorForm({
       out.maxPositionSize = min
     }
     return out
+  }
+
+  const patch = (partial) => {
+    setDirty(true)
+    setDraft((prev) => {
+      const next = { ...prev, ...partial }
+      if (liveSave) queueLiveSave(normalizeDraft(next))
+      return next
+    })
+  }
+
+  const switchDraftMode = (nextMode) => {
+    const selected = nextMode === 'live' ? profiles?.live : profiles?.paper
+    const next = normalizeDraft({
+      ...draft,
+      ...(selected || {}),
+      mode: nextMode,
+    })
+    setDirty(true)
+    setDraft(next)
+    if (liveSave) queueLiveSave(next)
   }
 
   const numField = (key, label, step = '1') => (
@@ -667,9 +763,15 @@ function BehaviorForm({
       </Alert>
 
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Button type="submit" disabled={!dirty} className="h-11 flex-1">
-          Save behavior
-        </Button>
+        {liveSave ? (
+          <div className="text-muted-foreground flex h-11 flex-1 items-center justify-center rounded-md border border-border/60 font-mono text-xs uppercase">
+            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : saveStatus === 'error' ? 'Save failed' : 'Live save on'}
+          </div>
+        ) : (
+          <Button type="submit" disabled={!dirty} className="h-11 flex-1">
+            Save behavior
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -702,6 +804,7 @@ function TradeApproveDialog({ pending, onApprove, onReject, busy }) {
   const open = pending.length > 0
   const p = pending[0]
   const plan = p?.plan || {}
+  const arbHold = !!(plan.isArbLeg || plan.packageId || plan.exitMode === 'settlement' || plan.exitMode === 'arb_capture')
   const leftSec = p ? Math.max(0, Math.ceil(((p.expiresAt || 0) - Date.now()) / 1000)) : 0
 
   return (
@@ -728,6 +831,18 @@ function TradeApproveDialog({ pending, onApprove, onReject, busy }) {
                 {money(plan.costEst)} · ~{plan.shares} sh
               </div>
             </div>
+            {arbHold ? (
+              <div className="col-span-2 rounded-lg border border-primary/40 bg-primary/10 p-2.5 sm:p-3">
+                <div className="text-muted-foreground text-[0.65rem] uppercase tracking-wide">Exit</div>
+                <div className="font-mono text-sm text-primary sm:text-base">
+                  {plan.exitMode === 'settlement' ? 'Hold to settle (arb package)' : 'Arb pair — merge / spread capture'}
+                </div>
+                <div className="text-muted-foreground text-xs">
+                  Both legs banked as one package. Merge frees capital at lock; no solo mid-window TP/SL.
+                </div>
+              </div>
+            ) : (
+              <>
             <div className="rounded-lg border border-primary/40 bg-primary/10 p-2.5 sm:p-3">
               <div className="text-muted-foreground text-[0.65rem] uppercase tracking-wide">Take profit</div>
               <div className="font-mono text-sm text-primary sm:text-base">
@@ -742,6 +857,8 @@ function TradeApproveDialog({ pending, onApprove, onReject, busy }) {
               </div>
               <div className="text-muted-foreground font-mono text-xs">{money(plan.slPnl)}</div>
             </div>
+              </>
+            )}
             <div className="col-span-2 rounded-lg border border-border p-2.5 sm:p-3">
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span>
@@ -1184,6 +1301,13 @@ function PolyShell({
   const botPositions = poly.botPositions || []
   const pending = poly.pendingTrades || []
   const openBot = botPositions.filter((p) => !p.closed)
+  const banked = useMemo(
+    () => bankBotPositions(
+      (botPositions || []).filter((p) => !p.closed),
+      poly.packages || [],
+    ),
+    [botPositions, poly.packages],
+  )
   const remMs = poly.cycle?.remainingMs ?? poly.windows?.current?.remainingMs ?? 0
   const remSecNav = Math.max(0, Math.ceil(remMs / 1000))
   const cycleLabel = `WINDOW LEFT ${Math.floor(remSecNav / 60)}:${String(remSecNav % 60).padStart(2, '0')} · ${poly.cycle?.class || 'OPEN'}`
@@ -1541,6 +1665,7 @@ function PolyShell({
                     cfg={cfg}
                     profiles={poly.profiles}
                     onSave={setCfg}
+                    liveSave
                     configSessions={poly.configSessions || []}
                     onSaveSnapshot={saveConfigSnapshot}
                     onRestoreSnapshot={restoreConfigSnapshot}
@@ -1628,6 +1753,7 @@ function PolyShell({
                 lastScan={poly.lastScan?.time || poly.lastScan}
                 models={poly.models || []}
               />
+              <ArbDesk poly={poly} compact />
               <MlBay
                 mlTraces={poly.mlTraces || chartPack.mlTraces || {}}
                 intelligence={poly.intelligence || {}}
@@ -2036,7 +2162,7 @@ function PolyShell({
               <CardHeader className="px-3 py-2">
                 <CardTitle className="text-base">Positions</CardTitle>
                 <CardDescription>
-                  {botPositions.length} bot · {openPositions.length} wallet · uPnL {money(unrealizedPnl)}
+                  {banked.packages.length} arb pkg · {banked.singles.length} solo · {openPositions.length} wallet · uPnL {money(unrealizedPnl)}
                 </CardDescription>
               </CardHeader>
               <CardContent className="px-0 pb-2">
@@ -2053,8 +2179,38 @@ function PolyShell({
                 ) : (
                   <>
                     <div className="flex flex-col gap-2 p-2 lg:hidden">
+                      {banked.packages.map((pkg) => (
+                        <div key={pkg.packageId} className="rounded-lg border border-cyan-500/40 bg-cyan-500/5 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <Badge variant="outline" className="mb-1 border-cyan-500/40 bg-cyan-500/15 text-cyan-400">
+                                📦 {pkg.symbol} arb · {String(pkg.packageId).slice(-6)}
+                              </Badge>
+                              <div className="text-muted-foreground font-mono text-[0.65rem]">
+                                {pkg.pkgStatus}
+                                {pkg.lockedProfitUsd > 0 && <> · lock +{money(pkg.lockedProfitUsd)}</>}
+                                {pkg.gap != null && <> · gap {(Number(pkg.gap) * 100).toFixed(2)}%</>}
+                              </div>
+                              <div className="mt-1 space-y-0.5 font-mono text-[0.65rem] text-muted-foreground">
+                                {pkg.legs.map((l) => (
+                                  <div key={l.id}>
+                                    {l.outcome?.toUpperCase()} {Number(l.entryPrice || 0).toFixed(3)}→
+                                    {Number((l.liveMark ?? l.currentPrice) || 0).toFixed(3)} · {(l.shares || 0).toFixed(2)} sh
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className={cn('font-mono text-sm', Number(pkg.netPnl || 0) >= 0 ? 'text-primary' : 'text-destructive')}>
+                              {money(pkg.netPnl)}
+                            </div>
+                          </div>
+                          <div className="text-muted-foreground mt-2 font-mono text-xs">
+                            cost {money(pkg.cost)} · {pkg.legs.length} legs
+                          </div>
+                        </div>
+                      ))}
                       {[
-                        ...botPositions.map((p) => ({ kind: 'bot', key: p.id, p })),
+                        ...banked.singles.map((p) => ({ kind: 'bot', key: p.id, p })),
                         ...openPositions.map((p, i) => ({ kind: 'wallet', key: `w-${i}`, p })),
                       ].map(({ kind, key, p }) => {
                         const pnl = kind === 'wallet' ? p.cashPnl : (p.unrealizedPnl ?? p.pnl)
@@ -2125,7 +2281,38 @@ function PolyShell({
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {botPositions.map((p) => (
+                            {banked.packages.map((pkg) => (
+                              <TableRow key={pkg.packageId} className="bg-cyan-500/5">
+                                <TableCell>
+                                  <Badge variant="outline" className="border-cyan-500/40 text-cyan-400">pkg</Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="font-medium">{pkg.symbol}</div>
+                                  <div className="font-mono text-[0.6rem] text-muted-foreground">
+                                    {String(pkg.packageId).slice(-8)} · {pkg.pkgStatus}
+                                    {pkg.lockedProfitUsd > 0 && <> · lock {money(pkg.lockedProfitUsd)}</>}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="font-mono text-[0.7rem]">
+                                  {pkg.legs.map((l) => l.outcome?.toUpperCase()).join(' + ')}
+                                </TableCell>
+                                <TableCell className="font-mono text-[0.7rem]">
+                                  {pkg.legs.map((l) => Number(l.entryPrice || 0).toFixed(3)).join(' / ')}
+                                </TableCell>
+                                <TableCell className="font-mono text-[0.7rem]">
+                                  {pkg.legs.map((l) => Number((l.liveMark ?? l.currentPrice) || 0).toFixed(3)).join(' / ')}
+                                </TableCell>
+                                <TableCell className="font-mono text-[0.65rem] text-muted-foreground">pair</TableCell>
+                                <TableCell className="font-mono">
+                                  {pkg.legs.map((l) => Number(l.shares || 0).toFixed(1)).join(' / ')}
+                                </TableCell>
+                                <TableCell className={cn('font-mono', Number(pkg.netPnl || 0) >= 0 ? 'text-primary' : 'text-destructive')}>
+                                  {money(pkg.netPnl)}
+                                </TableCell>
+                                <TableCell />
+                              </TableRow>
+                            ))}
+                            {banked.singles.map((p) => (
                               <TableRow key={p.id}>
                                 <TableCell>bot</TableCell>
                                 <TableCell>{p.symbol}</TableCell>
@@ -2210,12 +2397,15 @@ function PolyShell({
               />
               {(() => {
                 const trades = (poly.trades || []).filter((t) => !t.mode || t.mode === (displayMode || 'paper'))
+                const historyRows = bankHistoryRows(trades)
                 const wins = trades.filter((t) => (t.pnl || 0) > 0)
                 const losses = trades.filter((t) => (t.pnl || 0) <= 0)
                 const totalPnl = trades.reduce((s, t) => s + (t.pnl || 0), 0)
                 const best = wins.length > 0 ? wins.reduce((b, t) => ((t.pnl || 0) > (b?.pnl || -Infinity) ? t : b), null) : null
                 const worst = losses.length > 0 ? losses.reduce((b, t) => ((t.pnl || 0) < (b?.pnl || Infinity) ? t : b), null) : null
                 const wr = trades.length ? (wins.length / trades.length) * 100 : 0
+                const pkgWin = historyRows.filter((r) => r.kind === 'package' && r.netPnl > 0).length
+                const pkgN = historyRows.filter((r) => r.kind === 'package').length
                 const ca = poly.cashAudit || {}
                 const win = poly.windows?.current || {}
                 const remSec = Math.max(0, Math.ceil((win.remainingMs || poly.cycle?.remainingMs || 0) / 1000))
@@ -2371,7 +2561,7 @@ function PolyShell({
                       <CardHeader className="px-3 py-2">
                         <CardTitle className="text-base">Trade detail</CardTitle>
                         <CardDescription>
-                          {wins.length}W / {losses.length}L · newest first
+                          {wins.length}W / {losses.length}L · {pkgN} arb pkgs ({pkgWin}W) · newest first
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="flex flex-col gap-2 px-3 pb-3">
@@ -2388,7 +2578,49 @@ function PolyShell({
                             </EmptyHeader>
                           </Empty>
                         ) : (
-                          trades.slice(0, 40).map((t, i) => (
+                          historyRows.slice(0, 40).map((row, i) => {
+                            if (row.kind === 'package') {
+                              return (
+                                <div
+                                  key={`pkg-${row.packageId}-${i}`}
+                                  className="rounded-lg border border-cyan-500/40 bg-cyan-500/5 p-2.5 sm:p-3"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <Badge variant="outline" className="border-cyan-500/40 bg-cyan-500/15 text-cyan-400">
+                                        📦 {row.symbol} · {String(row.packageId).slice(-6)}
+                                      </Badge>
+                                      <Badge variant="secondary">{String(row.exitReason || 'arb').toUpperCase()}</Badge>
+                                      <span className="text-muted-foreground font-mono text-[0.65rem]">
+                                        {row.legs.length} legs
+                                      </span>
+                                    </div>
+                                    <span
+                                      className={cn(
+                                        'font-mono text-sm font-semibold',
+                                        (row.netPnl || 0) >= 0 ? 'text-[#a3e635]' : 'text-destructive',
+                                      )}
+                                    >
+                                      {(row.netPnl || 0) >= 0 ? '+' : ''}
+                                      {money(row.netPnl)}
+                                    </span>
+                                  </div>
+                                  <div className="text-muted-foreground mt-2 grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[0.65rem] sm:grid-cols-4">
+                                    {row.legs.map((l) => (
+                                      <span key={l.id || `${l.outcome}-${l.exitPrice}`}>
+                                        {l.outcome?.toUpperCase()} {money(l.entryPrice, 3)}→{money(l.exitPrice, 3)} · {money(l.pnl)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="text-muted-foreground mt-1 flex flex-wrap gap-2 text-[0.65rem]">
+                                    <span>{historyTime(row.timestamp)}</span>
+                                    {row.slug && <span className="font-mono opacity-70">{row.slug}</span>}
+                                  </div>
+                                </div>
+                              )
+                            }
+                            const t = row.t
+                            return (
                             <div
                               key={i}
                               className="rounded-lg border border-border/70 p-2.5 sm:p-3"
@@ -2404,11 +2636,6 @@ function PolyShell({
                                   >
                                     {t.mode}
                                   </Badge>
-                                  {(t.packageId || t.isArbLeg) && (
-                                    <Badge variant="outline" className="border-cyan-500/40 bg-cyan-500/15 text-cyan-400">
-                                      📦 Arb Package {t.packageId ? `(${String(t.packageId).slice(-6)})` : ''}
-                                    </Badge>
-                                  )}
                                   {t.exitReason === 'arb_rollback' && (
                                     <Badge variant="outline" className="border-amber-500/40 bg-amber-500/15 text-amber-400">
                                       ⚠️ ABORTED ARB
@@ -2443,7 +2670,8 @@ function PolyShell({
                                 {t.shares != null && <span>{Number(t.shares).toFixed(2)} sh</span>}
                               </div>
                             </div>
-                          ))
+                            )
+                          })
                         )}
                       </CardContent>
                     </Card>
@@ -2470,6 +2698,10 @@ function PolyShell({
           )}
 
           {tab === 'process' && <ProcessPage poly={poly} />}
+          {tab === 'observability' && <ObservabilityPage poly={poly} />}
+          {tab === 'tune' && (
+            <TunePage poly={poly} onSave={setCfg} onRefresh={refreshState} />
+          )}
 
           {tab === 'traces' && (
             <div className="poly-panel flex flex-col gap-2 sm:gap-3">
@@ -2565,13 +2797,14 @@ function PolyShell({
               <Card>
                 <CardHeader className="px-3 py-2">
                   <CardTitle className="text-base">Bot behavior</CardTitle>
-                  <CardDescription>Changes apply immediately after save</CardDescription>
+                  <CardDescription>Live save — changes apply as you edit</CardDescription>
                 </CardHeader>
                 <CardContent className="px-3 pb-3">
                   <BehaviorForm
                     cfg={cfg}
                     profiles={poly.profiles}
                     onSave={setCfg}
+                    liveSave
                     configSessions={poly.configSessions || []}
                     onSaveSnapshot={saveConfigSnapshot}
                     onRestoreSnapshot={restoreConfigSnapshot}
@@ -2634,14 +2867,14 @@ function PolyDashboardApp() {
         id: 'overview',
         label: 'Mission',
         shortLabel: 'Mission',
-        description: 'Dataflow + ML bay',
+        description: 'Arb desk + ML bay',
         icon: Activity,
       },
       {
         id: 'markets',
         label: 'Markets',
         shortLabel: 'Markets',
-        description: '5m windows + book',
+        description: 'Multi-asset windows + book',
         icon: LineChart,
       },
       {
@@ -2650,6 +2883,20 @@ function PolyDashboardApp() {
         shortLabel: 'Proc',
         description: 'Scan decisions + pipeline',
         icon: Cpu,
+      },
+      {
+        id: 'tune',
+        label: 'Tune',
+        shortLabel: 'Tune',
+        description: 'Regime + multi-asset arb',
+        icon: SlidersHorizontal,
+      },
+      {
+        id: 'observability',
+        label: 'Observe',
+        shortLabel: 'Obs',
+        description: 'Arb desk + gates + health',
+        icon: Eye,
       },
       {
         id: 'traces',
@@ -2707,6 +2954,9 @@ function PolyDashboardApp() {
         overview: 'overview',
         markets: 'markets',
         process: 'process',
+        tune: 'tune',
+        observability: 'observe',
+        observe: 'observe',
         traces: 'traces',
         positions: 'positions',
         account: 'account',
@@ -2727,6 +2977,8 @@ function PolyDashboardApp() {
       overview: 'mission',
       markets: 'markets',
       process: 'process',
+      tune: 'tune',
+      observability: 'observe',
       traces: 'traces',
       positions: 'positions',
       account: 'account',
@@ -2742,6 +2994,8 @@ function PolyDashboardApp() {
       overview: 'Mission',
       markets: 'Markets',
       process: 'Process',
+      tune: 'Tune',
+      observability: 'Observe',
       traces: 'Traces',
       positions: 'Positions',
       account: 'Account',

@@ -27,9 +27,69 @@ let connectCount = 0;
 let msgCount = 0;
 
 function emit(tokenId, snap) {
+  noteArbHotToken(tokenId);
   for (const fn of listeners) {
     try { fn(tokenId, snap); } catch {}
   }
+}
+
+/** Tokens whose books moved recently — scan prioritizes their markets for arb. */
+const arbHotTokens = new Map();
+const ARB_HOT_TTL_MS = 4_000;
+
+function noteArbHotToken(tokenId) {
+  if (!tokenId) return;
+  arbHotTokens.set(String(tokenId), Date.now());
+}
+
+/** Drop stale hot marks. */
+function pruneArbHotTokens() {
+  const now = Date.now();
+  for (const [id, at] of arbHotTokens) {
+    if (now - at > ARB_HOT_TTL_MS) arbHotTokens.delete(id);
+  }
+}
+
+/**
+ * Peek without consuming — used to prioritize markets in the scan sort.
+ */
+export function peekArbHuntForMarket(market, { minGap = 0.005 } = {}) {
+  pruneArbHotTokens();
+  const upId = market?.tokenIds?.up ? String(market.tokenIds.up) : null;
+  const downId = market?.tokenIds?.down ? String(market.tokenIds.down) : null;
+  if (!upId && !downId) return null;
+
+  const upHot = upId && arbHotTokens.has(upId);
+  const downHot = downId && arbHotTokens.has(downId);
+  if (!upHot && !downHot) return null;
+
+  const upBook = upId ? getClobWsBook(upId) : null;
+  const downBook = downId ? getClobWsBook(downId) : null;
+  const upAsk = Number(upBook?.bestAsk || 0);
+  const downAsk = Number(downBook?.bestAsk || 0);
+  if (!(upAsk > 0 && downAsk > 0)) return null;
+  const gap = 1 - upAsk - downAsk;
+  if (!(gap >= Number(minGap))) return null;
+  return { gap, upAsk, downAsk, at: Date.now() };
+}
+
+/**
+ * True when this market's book just moved and touch gap clears a fee-ish floor.
+ * Consumes the hot marks so the same flicker is not re-prioritized forever.
+ */
+export function takeArbHuntForMarket(market, { minGap = 0.005 } = {}) {
+  const peek = peekArbHuntForMarket(market, { minGap });
+  if (!peek) return null;
+  const upId = market?.tokenIds?.up ? String(market.tokenIds.up) : null;
+  const downId = market?.tokenIds?.down ? String(market.tokenIds.down) : null;
+  if (upId) arbHotTokens.delete(upId);
+  if (downId) arbHotTokens.delete(downId);
+  return peek;
+}
+
+export function arbHuntPendingCount() {
+  pruneArbHotTokens();
+  return arbHotTokens.size;
 }
 
 function usablePx(px) {
@@ -37,30 +97,126 @@ function usablePx(px) {
   return Number.isFinite(n) && n > 0 && n < 1 ? n : null;
 }
 
-function upsertFromBook(assetId, bids, asks, ts) {
-  if (!assetId) return;
-  const bidPx = (bids || [])
-    .map((b) => parseFloat(b.price ?? b[0]))
-    .filter((p) => Number.isFinite(p) && p > 0)
-    .sort((a, b) => b - a)[0] ?? null;
-  const askPx = (asks || [])
-    .map((a) => parseFloat(a.price ?? a[0]))
-    .filter((p) => Number.isFinite(p) && p > 0)
-    .sort((a, b) => a - b)[0] ?? null;
-  const rawMid = bidPx != null && askPx != null
-    ? (bidPx + askPx) / 2
-    : (bidPx ?? askPx ?? null);
-  const prev = books.get(String(assetId)) || {};
-  const snap = {
-    bestBid: bidPx,
-    bestAsk: askPx,
+/**
+ * Full price→size ladders per token, kept alongside `books`.
+ *
+ * This layer used to retain only the best bid and ask price and throw every
+ * size away. That made `imbalance` and `spreadPct` impossible to compute on the
+ * WebSocket path, so `getDepthForMarket` returned a snapshot without them —
+ * and since the WS feed is healthy most of the time, the order-book bias block
+ * in `buildDecision` and the `ORDER_FLOW` component of alphaFusion (weight
+ * 0.2–0.3 of the blend) both silently went dark almost always. They only came
+ * back when the socket was down and the REST fallback ran.
+ *
+ * Maintaining the real L2 book is the only way to answer "how much size is
+ * resting on each side", which is what both of those consumers actually need.
+ *
+ * @type {Map<string, { bid: Map<number, number>, ask: Map<number, number> }>}
+ */
+const ladders = new Map();
+
+const BOOK_LEVELS = 10;
+
+function ladderFor(assetId) {
+  let l = ladders.get(assetId);
+  if (!l) {
+    l = { bid: new Map(), ask: new Map() };
+    ladders.set(assetId, l);
+  }
+  return l;
+}
+
+/**
+ * Collapse the ladders into the same shape `normalizeLevels` produces for the
+ * REST path, so both sources are interchangeable to every consumer.
+ *
+ * Totals are taken over the top `BOOK_LEVELS` rather than the whole book to
+ * match the REST implementation — imbalance measured across the full ladder is
+ * a different statistic, and mixing the two per source would be worse than
+ * either.
+ */
+function deriveSnap(assetId, prev, ts) {
+  const { bid, ask } = ladderFor(assetId);
+
+  const toLevels = (map, dir) => [...map.entries()]
+    .map(([price, size]) => ({ price, size }))
+    .filter((l) => Number.isFinite(l.price) && Number.isFinite(l.size) && l.size > 0)
+    .sort((a, b) => (dir === 'bid' ? b.price - a.price : a.price - b.price))
+    .slice(0, BOOK_LEVELS)
+    .map((l) => ({ ...l, value: l.price * l.size }));
+
+  const bids = toLevels(bid, 'bid');
+  const asks = toLevels(ask, 'ask');
+
+  let cumBid = 0;
+  for (const b of bids) { cumBid += b.size; b.cum = cumBid; }
+  let cumAsk = 0;
+  for (const a of asks) { cumAsk += a.size; a.cum = cumAsk; }
+
+  const bestBid = bids[0]?.price ?? null;
+  const bestAsk = asks[0]?.price ?? null;
+  const spread = bestBid != null && bestAsk != null ? bestAsk - bestBid : null;
+  const rawMid = bestBid != null && bestAsk != null
+    ? (bestBid + bestAsk) / 2
+    : (bestBid ?? bestAsk ?? prev.mid ?? null);
+  const spreadPct = rawMid > 0 && spread != null ? (spread / rawMid) * 100 : null;
+
+  const totalBidVol = bids.reduce((s, b) => s + b.value, 0);
+  const totalAskVol = asks.reduce((s, a) => s + a.value, 0);
+  const imbalance = totalBidVol + totalAskVol > 0
+    ? (totalBidVol - totalAskVol) / (totalBidVol + totalAskVol)
+    : 0;
+
+  return {
+    bestBid,
+    bestAsk,
     mid: usablePx(rawMid) ?? usablePx(prev.mid) ?? usablePx(prev.lastTrade),
     lastTrade: prev.lastTrade ?? null,
+    bids,
+    asks,
+    spread: spread ?? 0,
+    spreadPct: spreadPct ?? 0,
+    totalBidVol,
+    totalAskVol,
+    imbalance,
+    bidCount: bids.length,
+    askCount: asks.length,
     ts: Number(ts) || Date.now(),
     source: 'clob-ws',
   };
-  books.set(String(assetId), snap);
-  emit(String(assetId), snap);
+}
+
+function commit(assetId, ts) {
+  const prev = books.get(assetId) || {};
+  const snap = deriveSnap(assetId, prev, ts);
+  books.set(assetId, snap);
+  emit(assetId, snap);
+}
+
+function upsertFromBook(assetId, bids, asks, ts) {
+  if (!assetId) return;
+  const id = String(assetId);
+
+  // A `book` message is a full snapshot, so the ladder is replaced wholesale
+  // rather than merged — a stale level that vanished server-side must not
+  // survive here.
+  const l = ladderFor(id);
+  l.bid.clear();
+  l.ask.clear();
+
+  const load = (rows, target) => {
+    for (const r of rows || []) {
+      const price = parseFloat(r.price ?? r[0]);
+      const size = parseFloat(r.size ?? r[1]);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      if (!Number.isFinite(size) || size <= 0) continue;
+      target.set(price, size);
+    }
+  };
+  load(bids, l.bid);
+  load(asks, l.ask);
+
+  commit(id, ts);
 }
 
 function applyPriceChange(change, ts) {
@@ -69,39 +225,30 @@ function applyPriceChange(change, ts) {
   const price = parseFloat(change.price);
   const size = parseFloat(change.size);
   const side = String(change.side || '').toUpperCase();
-  const prev = books.get(assetId) || {
-    bestBid: null, bestAsk: null, mid: null, lastTrade: null, ts: 0, source: 'clob-ws',
-  };
-  let { bestBid, bestAsk } = prev;
-  // size 0 = level removed; otherwise update best if this side improves/matches
-  if (Number.isFinite(price) && price > 0) {
-    if (side === 'BUY' || side === 'BID') {
-      if (!Number.isFinite(size) || size <= 0) {
-        if (bestBid === price) bestBid = null;
-      } else if (bestBid == null || price >= bestBid) {
-        bestBid = price;
-      }
-    } else if (side === 'SELL' || side === 'ASK') {
-      if (!Number.isFinite(size) || size <= 0) {
-        if (bestAsk === price) bestAsk = null;
-      } else if (bestAsk == null || price <= bestAsk) {
-        bestAsk = price;
-      }
-    }
-  }
-  const rawMid = bestBid != null && bestAsk != null
-    ? (bestBid + bestAsk) / 2
-    : (bestBid ?? bestAsk ?? prev.mid);
-  const snap = {
-    bestBid,
-    bestAsk,
-    mid: usablePx(rawMid) ?? usablePx(prev.mid) ?? usablePx(prev.lastTrade),
-    lastTrade: prev.lastTrade,
-    ts: Number(ts) || Date.now(),
-    source: 'clob-ws',
-  };
-  books.set(assetId, snap);
-  emit(assetId, snap);
+  if (!Number.isFinite(price) || price <= 0) return;
+
+  const l = ladderFor(assetId);
+  const target = (side === 'BUY' || side === 'BID') ? l.bid
+    : (side === 'SELL' || side === 'ASK') ? l.ask
+      : null;
+  if (!target) return;
+
+  // size 0 = level removed.
+  if (!Number.isFinite(size) || size <= 0) target.delete(price);
+  else target.set(price, size);
+
+  commit(assetId, ts);
+}
+
+/**
+ * Feed one raw socket frame through the book state machine.
+ *
+ * Exported so the ladder can be driven from tests and from a recorded frame
+ * replay without opening a socket. The live socket handler is the only other
+ * caller.
+ */
+export function ingestClobMessage(raw) {
+  handleMessage(raw);
 }
 
 function handleMessage(raw) {

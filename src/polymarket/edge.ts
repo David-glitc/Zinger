@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { CONF_GATE } from './confidenceScale.js';
 /**
  * Expectancy / edge gate for directional trading vs arb-only.
  * Live mode stays locked until recent paper expectancy is positive.
@@ -136,7 +137,7 @@ export function passesEdgeFilter(candidate, signal) {
   const agrees = signal?.direction
     && signal.direction !== 'neutral'
     && signal.direction === candidate.outcome
-    && Number(signal.confidence || 0) >= 0.35;
+    && Number(signal.confidence || 0) >= CONF_GATE.SAMPLE_FLOOR;
   const scoreOk = Number(candidate.score || 0) > 8;
   return Boolean(hasBookEdge || agrees || scoreOk);
 }

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { signedUsd } from '../lib/money.js';
 import OpenAI from 'openai';
 
 /** Prefer free router — specific :free slugs rotate/404 often on OpenRouter */
@@ -102,7 +103,7 @@ export async function summarizeState(state) {
   const prompt = [
     '=== ZINGER QUANT STATE ===',
     `Status: ${state.running ? 'RUNNING' : 'STOPPED'} | Mode: ${config.mode || 'paper'}`,
-    `Net PnL: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} · Realized $${Number(portfolio.realizedPnl || 0).toFixed(2)} · Unrealized $${Number(portfolio.unrealizedPnl || 0).toFixed(2)}`,
+    `Net PnL: ${signedUsd(totalPnl)} · Realized $${Number(portfolio.realizedPnl || 0).toFixed(2)} · Unrealized $${Number(portfolio.unrealizedPnl || 0).toFixed(2)}`,
     `Equity $${Number(portfolio.equity || 0).toFixed(2)} · Cash $${Number(portfolio.cash || 0).toFixed(2)}`,
     `Trades: ${closed.length} · Win rate: ${winRate}%`,
     `Open positions: ${(state.botPositions || state.positions || []).filter((p) => !p.closed).length}`,

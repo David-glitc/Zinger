@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { POLY_WINDOW_SECONDS } from '../config.js';
+import { clampConfidence } from '../confidenceScale.js';
+import { mlOverrideAllowed, recordMlPrediction, recordFusedSignal } from '../signalHealth.js';
 import { loadFusionContext, refreshFusionContext } from '../signal.js';
 
 export async function fetchSpotTicker(symbol: string) {
@@ -83,6 +85,7 @@ export async function collectSignals({
         const ml = mlOverride[asset];
         if (!raw || !ml || ml.error || ml.direction === 'neutral' || ml.direction === 0) continue;
         if (typeof addMLPrediction === 'function') addMLPrediction(asset, ml);
+        recordMlPrediction(ml);
 
         const rawIsBull = raw.direction === 'up';
         const mlIsBull = ml.direction === 1 || ml.direction === 'up';
@@ -90,14 +93,28 @@ export async function collectSignals({
         const paperLoose = cfg.mode === 'paper' && mlConf >= 0.58;
         const liveStrong = mlConf >= 0.62;
 
-        if ((paperLoose || liveStrong) && (raw.direction === 'neutral' || rawIsBull !== mlIsBull)) {
+        const disagrees = raw.direction === 'neutral' || rawIsBull !== mlIsBull;
+        // A model that answers the same thing every time is not evidence, and
+        // overriding a working TA read with it is how one broken input takes
+        // over the whole pipeline. Measured 2026-08-31: the 5m model returned
+        // "up" on 545 of 545 stored samples, and because the TA signal was
+        // simultaneously stuck on "down", this branch fired every scan and
+        // pinned every trade to the same side.
+        const mlGate = disagrees ? mlOverrideAllowed() : { allowed: true, reason: null };
+        if ((paperLoose || liveStrong) && disagrees && !mlGate.allowed) {
+          raw.mlOverrideSuppressed = mlGate.reason;
+          if (typeof log === 'function' && Date.now() - (botState._mlSuppressLoggedAt || 0) > 300_000) {
+            botState._mlSuppressLoggedAt = Date.now();
+            log(`🚦 ML override suppressed — ${mlGate.reason}`, 'system');
+          }
+        } else if ((paperLoose || liveStrong) && disagrees) {
           raw.direction = mlIsBull ? 'up' : 'down';
-          raw.confidence = Math.min(0.65, Math.max(raw.confidence || 0, mlConf * 0.75));
+          raw.confidence = clampConfidence(Math.max(raw.confidence || 0, mlConf * 0.75));
           raw.score = Math.min(6, mlConf * 6);
           raw.mlOverride = true;
           raw.mlConfidence = mlConf;
         } else if ((paperLoose || liveStrong) && rawIsBull === mlIsBull) {
-          raw.confidence = Math.min(0.65, (raw.confidence || 0) + mlConf * 0.12);
+          raw.confidence = clampConfidence((raw.confidence || 0) + mlConf * 0.12);
           raw.mlConfirmed = true;
           raw.mlConfidence = mlConf;
         }
@@ -105,12 +122,18 @@ export async function collectSignals({
         if (typeof getConfidenceBias === 'function') {
           const bias = getConfidenceBias(asset, raw);
           if (bias?.bias !== 0) {
-            raw.confidence = Math.min(0.65, bias.adjusted);
+            raw.confidence = clampConfidence(bias.adjusted);
             raw.confidenceBias = bias;
             raw.confidenceBiasUsed = true;
           }
         }
       }
+    }
+  }
+
+  if (!cfg?.forceArbOnly) {
+    for (const asset of ['btc', 'eth']) {
+      if (botState.signals?.[asset]) recordFusedSignal(botState.signals[asset]);
     }
   }
 

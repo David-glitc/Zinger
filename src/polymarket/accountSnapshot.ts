@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { signedUsd } from '../lib/money.js';
 /**
  * Equity curve + session PnL snapshot (SVG data URL) for Core Account tab.
  */
@@ -116,7 +117,7 @@ export function buildPnlSnapshotSvg({
   <text x="40" y="170" fill="#94a3b8" font-family="ui-monospace,monospace" font-size="14">EQUITY</text>
   <text x="40" y="210" fill="#f8fafc" font-family="ui-monospace,monospace" font-size="44" font-weight="700">$${Number(equity).toFixed(2)}</text>
   <text x="360" y="170" fill="#94a3b8" font-family="ui-monospace,monospace" font-size="14">SESSION PnL</text>
-  <text x="360" y="210" fill="${pnlColor}" font-family="ui-monospace,monospace" font-size="44" font-weight="700">${pnl >= 0 ? '+' : ''}$${Number(pnl).toFixed(2)}</text>
+  <text x="360" y="210" fill="${pnlColor}" font-family="ui-monospace,monospace" font-size="44" font-weight="700">${signedUsd(pnl)}</text>
   <text x="40" y="270" fill="#94a3b8" font-family="ui-monospace,monospace" font-size="14">CASH</text>
   <text x="40" y="300" fill="#e2e8f0" font-family="ui-monospace,monospace" font-size="24">$${Number(cash).toFixed(2)}</text>
   <text x="220" y="270" fill="#94a3b8" font-family="ui-monospace,monospace" font-size="14">WIN RATE</text>

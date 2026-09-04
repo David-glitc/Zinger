@@ -3,6 +3,7 @@ const BINANCE = 'https://api.binance.com';
 const BINANCE_FUTURES = 'https://fapi.binance.com';
 
 import { applyAlphaFusion } from './alphaFusion.js';
+import { clampConfidence, CONF_FLOOR } from './confidenceScale.js';
 import { loadRegimeSignal } from './regimeSignal.js';
 
 /**
@@ -85,10 +86,70 @@ function rsi(prices, period = 14) {
   return al === 0 ? 100 : 100 - 100 / (1 + ag / al);
 }
 
+/**
+ * EMA at every point rather than just the last one.
+ *
+ * `out[j]` is the EMA ending at price index `j + period - 1`, so the first
+ * entry is the seed (mean of the first `period` prices) and the series is
+ * `prices.length - period + 1` long.
+ */
+function emaSeries(prices, period) {
+  if (!Array.isArray(prices) || prices.length < period || period < 1) return [];
+  const k = 2 / (period + 1);
+  let v = prices.slice(0, period).reduce((s, p) => s + p, 0) / period;
+  const out = [v];
+  for (let i = period; i < prices.length; i++) {
+    v = prices[i] * k + v * (1 - k);
+    out.push(v);
+  }
+  return out;
+}
+
+/**
+ * MACD, with a signal line that is an EMA of the MACD *series*.
+ *
+ * The previous implementation was `ema([...prices.slice(-9), m], 9)` — an EMA
+ * over nine raw closes with a single MACD value appended. Since `ema()` seeds
+ * with the mean of the first `period` elements, the seed was the mean of nine
+ * BTC closes (~110,000) and one iteration could not pull it anywhere near the
+ * MACD's true scale (single digits). `hist` therefore came out at roughly minus
+ * the asset price: measured `-62751` on live BTC candles.
+ *
+ * That fed `clamp11(m1 * 8 + m5 * 3 + macdH * 40)` in alphaFusion, which
+ * saturated at -1 on every scan. Across 800 backtested bars the fused signal
+ * printed 639 down, 161 neutral and 0 up — the bot could not express a bullish
+ * TA view at all, and the ML overlay then flipped every one of those to "up"
+ * because it always disagreed. All 15 recent trades were `up` at exactly 0.65
+ * confidence as a direct result.
+ *
+ * A signal line has to be an average of the indicator, never of the input.
+ */
 function macd(prices) {
-  const f = ema(prices, 12), s = ema(prices, 26);
-  const m = f - s, sig = ema([...prices.slice(-9), m], 9);
-  return { macd: m, signal: sig, hist: m - sig };
+  const fast = emaSeries(prices, 12);
+  const slow = emaSeries(prices, 26);
+  if (!fast.length || !slow.length) return { macd: 0, signal: 0, hist: 0 };
+
+  // Align on the later start: fast[j] ends at index j+11, slow[j] at j+25.
+  const line = slow.map((slowV, j) => fast[j + 26 - 12] - slowV).filter(Number.isFinite);
+  if (!line.length) return { macd: 0, signal: 0, hist: 0 };
+
+  const m = line[line.length - 1];
+  // Fewer than 9 MACD points is not enough for the standard signal line; fall
+  // back to the mean of what exists rather than seeding from a wrong scale.
+  const sig = line.length >= 9
+    ? emaSeries(line, 9).pop()
+    : line.reduce((s, v) => s + v, 0) / line.length;
+
+  const hist = m - sig;
+  const last = prices[prices.length - 1];
+
+  // MACD is denominated in price, so a "normal" histogram is ~5 on BTC at
+  // 110k and ~0.2 on ETH at 4k. Consumers that mix it with percentage momentum
+  // need the scale-free form or BTC dominates the blend ~25x for no reason
+  // other than costing more. `histPct` is the histogram as a percent of price.
+  const histPct = Number.isFinite(last) && last !== 0 ? (hist / last) * 100 : 0;
+
+  return { macd: m, signal: sig, hist, histPct };
 }
 
 function bollinger(prices, period = 20) {
@@ -240,7 +301,7 @@ export function analyze(candles, extras = {}) {
   const skipTrade = atrPct > 0.5;
   const direction = score > 2.5 ? 'up' : score < -2.5 ? 'down' : 'neutral';
   const absScore = Math.abs(score);
-  const confidence = Math.min(0.65, Math.round((0.28 + absScore * 0.055) * 100) / 100);
+  const confidence = clampConfidence(Math.round((CONF_FLOOR + absScore * 0.055) * 100) / 100);
   const edge = Math.sign(score) * confidence;
 
   return {
@@ -250,7 +311,12 @@ export function analyze(candles, extras = {}) {
     edge: Math.round(edge * 100) / 100,
     rsi: Math.round(rsiVal * 10) / 10,
     macd: macdData,
-    bb,
+    // `pos` is where price sits in the band, 0 at the lower and 1 at the upper.
+    // It was computed here and used for scoring but never returned, so
+    // alphaFusion's `analysis.bb?.pos` fell through to its `?? 0.5` default and
+    // pinned the Bollinger vote to exactly 0 on every scan — one of the five
+    // fused modalities was silently contributing nothing.
+    bb: { ...bb, pos: Number.isFinite(bbPos) ? Math.round(bbPos * 1000) / 1000 : 0.5 },
     adx: adxData,
     momentum: mom,
     volatility: { atr: Math.round(atr * 100) / 100, atrPct: Math.round(atrPct * 100) / 100 },

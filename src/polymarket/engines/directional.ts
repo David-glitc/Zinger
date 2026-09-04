@@ -30,7 +30,51 @@ import {
   resolveEntryWindows,
 } from '../heuristics/fundHeuristics.js';
 import { dataAssuranceBuyBlockReason } from '../dataAssurance.js';
+import { CONF_GATE } from '../confidenceScale.js';
+import { clampConfidence } from '../confidenceScale.js';
+import { strikeEdge } from '../strikeForecast.js';
+import { readBook, bookQuality, estimateBuyCost } from '../bookMicrostructure.js';
+import { vetoForOutcome } from '../targetContext.js';
+import { sessionTA } from '../sessionTA.js';
 import { POLY_MIN_ORDER_USD, POLY_WINDOW_SECONDS } from '../config.js';
+
+/**
+ * Dynamic entry price — computes required edge on the fly instead of a fixed band.
+ * Hard min/max (0.05/0.95) are absolute floor/ceiling. Everything else is:
+ *   netEdge = modelProb - price - fees
+ *   required = base (1.5c) + timePressure + volPenalty - confidenceDiscount
+ */
+function dynamicEntryPrice({ price, forecast, signal, remaining, bookMeta, cfg, windowSec, outcome }) {
+  const p = Number(price);
+  if (!(p > 0) || !(p < 1) || !forecast?.probUp) return { eligible: true, reason: 'no forecast' };
+  const side = outcome || (signal?.direction === 'down' ? 'down' : 'up');
+  const edgeInfo = strikeEdge({ probUp: forecast.probUp, price: p, outcome: side, feeRate: Number(cfg.feeRate ?? 0.07), exitIsSettlement: cfg.holdToSettleFavorites !== false });
+  if (!edgeInfo) return { eligible: true };
+  const netEdge = Number(edgeInfo.netEdge || 0);
+  const z = Math.abs(Number(forecast.z || 0));
+  const rem = Number(remaining || 0);
+  const win = Number(windowSec || 300);
+  const frac = win > 0 ? rem / win : 1;
+  // Base required edge: 1.2c in mid window, 2.5c near expiry (time pressure), -1c discount for high conf
+  const conf = Number(signal?.confidence || 0.2);
+  const base = 0.012;
+  const timeAdd = (1 - frac) * 0.018; // +0 to 1.8c near expiry
+  const volAdd = z > 1.0 ? 0.008 : 0; // decisive geometry needs more edge (noise)
+  const confDiscount = Math.max(0, (conf - 0.22) * 0.04); // high conf reduces required by up to ~1.7c
+  const required = base + timeAdd + volAdd - confDiscount;
+  // Liquidity add: wide spread needs more edge
+  const spreadPct = Number(bookMeta?.spreadPct || 0);
+  const spreadAdd = spreadPct > 2 ? 0.01 : 0;
+  const need = required + spreadAdd;
+  if (netEdge < need) {
+    return { eligible: false, reason: `need ${(need*100).toFixed(1)}c edge have ${(netEdge*100).toFixed(1)}c (z=${Number(forecast.z).toFixed(2)} rem=${rem}s)` };
+  }
+  // Also veto if price is too rich for underdog without forecast edge — dynamic ceiling
+  if (p > 0.72 && netEdge < 0.025 && conf < 0.35) {
+    return { eligible: false, reason: `fav $${p.toFixed(2)} needs 2.5c edge have ${(netEdge*100).toFixed(1)}c` };
+  }
+  return { eligible: true, edgeNote: `dyn edge ${(netEdge*100).toFixed(1)}c >= ${(need*100).toFixed(1)}c need`, netEdge, required: need };
+}
 
 /**
  * Soft tilt against a chronically one-sided book.
@@ -159,7 +203,7 @@ export function resolveOrderSize(cfg, { price, signal, readiness, stats, remaini
   // Paper directional recovery: if historical Kelly is negative, still allow tiny probes
   // (live stays blocked by edge gate / zero size)
   if ((!sizeUsd || sizeUsd <= 0) && cfg.mode === 'paper' && cfg.arbOnlyUntilEdge === false && hardCap >= minUsd) {
-    const conf = Math.min(0.65, Number(signal?.confidence || 0.35));
+    const conf = clampConfidence(Number(signal?.confidence || 0.35));
     sizeUsd = Math.round(Math.max(minUsd, Math.min(hardCap, 1.2 + conf * 2.5)) * 100) / 100;
     return {
       sizeUsd,
@@ -215,6 +259,7 @@ export function buildDecision({
   depth = null,
   prices = null,
   portfolio = null,
+  forecast = null,
 }) {
   const hasOpenOnSlug = portfolio?.hasOpenOnSlug === true;
   const sideBalance = portfolio?.sideBalance || null;
@@ -239,14 +284,35 @@ export function buildDecision({
     reasons.push('no price');
   }
 
-  if (eligible && price < cfg.minPrice) {
+  // Hard absolute bounds only — dynamic entry governs the real gate
+  const hardMin = Number(cfg.hardMinPrice ?? cfg.minPrice ?? 0.05);
+  const hardMax = Number(cfg.hardMaxPrice ?? cfg.maxPrice ?? 0.95);
+  if (eligible && price < hardMin) {
     eligible = false;
-    reasons.push(`below min $${cfg.minPrice.toFixed(2)}`);
+    reasons.push(`below hard min $${hardMin.toFixed(2)}`);
   }
-
-  if (eligible && price > cfg.maxPrice) {
+  if (eligible && price > hardMax) {
     eligible = false;
-    reasons.push(`above max $${cfg.maxPrice.toFixed(2)}`);
+    reasons.push(`above hard max $${hardMax.toFixed(2)}`);
+  }
+  // Dynamic price — edge + time pressure (book check later after bookMeta is built)
+  if (eligible && cfg.dynamicEntry !== false && forecast && signal) {
+    const dyn = dynamicEntryPrice({ price, forecast, signal, remaining, bookMeta: null, cfg, windowSec: market?.windowSeconds, outcome });
+    if (!dyn.eligible) {
+      eligible = false;
+      reasons.push(`dynamic price block — ${dyn.reason}`);
+    } else if (dyn.edgeNote) {
+      reasons.push(dyn.edgeNote);
+    }
+  } else if (eligible && cfg.dynamicEntry !== false && !forecast) {
+    // No forecast = no dynamic price — fall back to soft band but wider
+    const softMin = Number(cfg.minPrice ?? 0.12);
+    const softMax = Number(cfg.maxPrice ?? 0.88);
+    if (price < softMin || price > softMax) {
+      // don't hard block without forecast, just score penalty
+      score -= 6;
+      reasons.push(`soft band $${softMin.toFixed(2)}-$${softMax.toFixed(2)} no forecast`);
+    }
   }
 
   const entryWin = resolveEntryWindows(market?.duration || '5m', cfg);
@@ -367,6 +433,117 @@ export function buildDecision({
     }
   }
 
+  /**
+   * Strike forecast — the only input here that is denominated in the same units
+   * as the price it is being compared against.
+   *
+   * Every other term in this function is an unscaled score contribution whose
+   * magnitude was hand-tuned (`+18` for early entry, `-22` for a counter
+   * signal). This one is a probability, so `netEdge` is a direct answer to
+   * "is this contract cheap", already net of fees. That makes it both the
+   * highest-weight positive term and, more importantly, a veto: the measured
+   * loss pattern was not failing to find winners, it was buying the side the
+   * geometry already ruled out. A window whose spot sits a full sigma below its
+   * strike with 90 seconds left is not a 50/50 that RSI can rescue.
+   */
+  let forecastMeta = null;
+  if (cfg.useStrikeForecast !== false && forecast?.probUp != null) {
+    const edgeInfo = strikeEdge({
+      probUp: forecast.probUp,
+      price,
+      outcome,
+      feeRate: Number(cfg.feeRate ?? 0.07),
+      // Directional entries in these windows are held to settlement by default,
+      // which pays no taker fee on the way out.
+      exitIsSettlement: cfg.holdToSettleFavorites !== false,
+    });
+
+    if (edgeInfo) {
+      forecastMeta = {
+        probUp: forecast.probUp,
+        modelProb: edgeInfo.modelProb,
+        marketProb: edgeInfo.marketProb,
+        netEdge: edgeInfo.netEdge,
+        grossEdge: edgeInfo.grossEdge,
+        feeFrac: edgeInfo.feeFrac,
+        z: forecast.z,
+        sigmaTau: forecast.sigmaTau,
+        implausible: edgeInfo.implausible,
+      };
+    }
+
+    /**
+     * An implausible edge means our spot disagrees with the resolution feed, so
+     * the forecast contributes nothing in either direction. Scoring it would buy
+     * the wrong side on feed skew; vetoing on it would block the right side for
+     * the same reason. Silence is the only safe response.
+     */
+    if (edgeInfo?.implausible) {
+      reasons.push(
+        `forecast ignored — ${(edgeInfo.grossEdge * 100).toFixed(0)}c vs market implies a spot-feed gap`,
+      );
+    } else if (edgeInfo) {
+      const { netEdge } = edgeInfo;
+      // |z| says how decisive the geometry is. A big edge computed from a
+      // near-coin-flip is mostly vol-estimate error, so discount it.
+      const decisiveness = Math.min(1, Math.abs(Number(forecast.z) || 0) / 1.5);
+      const vetoEdge = -Number(cfg.strikeForecastVetoEdge ?? 0.04);
+
+      if (netEdge <= vetoEdge && cfg.strikeForecastVeto !== false) {
+        eligible = false;
+        reasons.push(
+          `forecast ${(edgeInfo.modelProb * 100).toFixed(0)}% vs ask ${(price * 100).toFixed(0)}c `
+          + `— ${(netEdge * 100).toFixed(1)}c edge (z=${Number(forecast.z).toFixed(2)})`,
+        );
+      } else if (netEdge > 0) {
+        // 120 puts a 5c net edge at +6 before decisiveness, comparable to the
+        // strongest existing term. The plausibility bound caps this near +18,
+        // which is deliberate: this term should be able to lead a decision, not
+        // single-handedly decide one.
+        const add = netEdge * 120 * (0.4 + 0.6 * decisiveness);
+        score += add;
+        reasons.push(
+          `forecast edge +${(netEdge * 100).toFixed(1)}c `
+          + `(model ${(edgeInfo.modelProb * 100).toFixed(0)}% vs ${(price * 100).toFixed(0)}c, z=${Number(forecast.z).toFixed(2)})`,
+        );
+      } else {
+        score -= Math.abs(netEdge) * 60 * decisiveness;
+        reasons.push(`forecast thin ${(netEdge * 100).toFixed(1)}c`);
+      }
+    }
+  }
+
+  /**
+   * Depth-weighted book read, in addition to the top-of-book `imbalance` above.
+   *
+   * `readBook` returns its own confidence as `weight`, so a thin or wide book
+   * contributes proportionally rather than being gated in or out — the ladder
+   * was previously computed on every scan and discarded entirely.
+   */
+  let microMeta = null;
+  if (cfg.useBookMicrostructure !== false && depth?.[outcome]) {
+    const read = readBook(depth[outcome]);
+    if (read && read.weight > 0) {
+      microMeta = {
+        vote: read.vote,
+        weight: read.weight,
+        weightedImbalance: read.weightedImbalance,
+        microTilt: read.microTilt,
+        levels: read.levels,
+      };
+      // `vote` is pressure toward this token settling YES, so it already points
+      // the same way as `outcome` — no sign flip needed.
+      const contribution = read.vote * read.weight * 20;
+      score += contribution;
+      if (Math.abs(contribution) > 1.5) {
+        reasons.push(
+          `book ${contribution > 0 ? 'supports' : 'opposes'} `
+          + `${(read.weightedImbalance * 100).toFixed(0)}% imb, q=${read.weight.toFixed(2)}`,
+        );
+      }
+    }
+  }
+
   if (cfg.useSignals) {
     if (!signal) {
       eligible = false;
@@ -401,19 +578,55 @@ export function buildDecision({
           score += skewSoft ? 8 : 6;
           reasons.push(skewSoft ? 'soft skew explore' : 'explore opposite side');
         }
-        // Counter without arb/edge stays eligible only if price is a clear underdog
-        if (!arbRescue && !(price > 0 && price <= Number(cfg.underdogMaxPrice ?? 0.42))) {
+        // A counter entry is the cheap half of a near-even binary *by
+        // construction*: when the signal reads DOWN, the UP side is always the
+        // cheaper of the two. Gating it on price alone therefore lets a
+        // confident signal be faded on essentially every scan, and the wider
+        // `underdogMaxPrice` gets, the more completely the bot trades against
+        // itself. Measured 2026-08-30 with underdogMaxPrice 0.52: 8 of 9 live
+        // paper entries bought UP while BTC and ETH both read DOWN at ~0.72
+        // confidence, and all nine closed at a loss.
+        //
+        // So a counter entry needs a real book reason (arb), or a genuine
+        // long-shot price *and* a signal weak enough to be worth doubting.
+        // A book gap justifies the *arb* engine buying both legs for a hedged
+        // pair; it is not a reason to take a naked directional bet against our
+        // own signal, so it cannot rescue a confident counter here.
+        const counterConfCap = Number(cfg.counterMaxConfidence ?? CONF_GATE.LOOSE);
+        const tooSureToFade = Number(signal.confidence || 0) >= counterConfCap;
+        const underdogPrice = price > 0 && price <= Number(cfg.underdogMaxPrice ?? 0.42);
+        if (tooSureToFade) {
+          eligible = false;
+          reasons.push(
+            `counter blocked — signal ${(signal.confidence * 100).toFixed(0)}% ≥ ${(counterConfCap * 100).toFixed(0)}% confident`,
+          );
+        } else if (!arbRescue && !underdogPrice) {
           eligible = false;
           reasons.push('counter needs arb or underdog price');
         }
-      } else if (signal.confidence < entryWin.minConfidence && !skewSoft) {
+      } else if (signal.confidence < entryWin.minConfidence) {
+        // The `&& !skewSoft` that used to be here waived the confidence floor
+        // whenever the recent book was one-sided (`upShare >= 0.68`). Because
+        // the signal pipeline was itself pinned to UP, that condition was
+        // permanently true and the floor was therefore never enforced on an
+        // agreeing entry — measured: `minConfidence` admitted 75.8% of
+        // directional signals.
+        //
+        // Side balance and signal quality are separate concerns. Wanting more
+        // DOWN entries is not a reason to accept a weak DOWN read; that is what
+        // the `sideBalanceBonus` score tilt further down is for.
         eligible = false;
         reasons.push(
           `confidence ${(signal.confidence * 100).toFixed(0)}% < ${(entryWin.minConfidence * 100).toFixed(0)}% (${entryWin.source})`,
         );
+      } else if (Number(cfg.maxConfidence ?? 0) > 0 && signal.confidence > Number(cfg.maxConfidence)) {
+        eligible = false;
+        reasons.push(
+          `confidence ${(signal.confidence * 100).toFixed(0)}% > ${(Number(cfg.maxConfidence) * 100).toFixed(0)}% cap`,
+        );
       } else {
         // Cap signal score contribution so soft balance can still nudge
-        const confCap = Math.min(Number(signal.confidence || 0), 0.65);
+        const confCap = clampConfidence(signal.confidence);
         score += (confCap * 40) + (edge * 45) + Math.min(Number(signal.score || 0), 6);
         reasons.push(`signal ${signal.direction.toUpperCase()} ${(confCap * 100).toFixed(0)}%`);
         if (edge > 0) reasons.push(`price edge +${(edge * 100).toFixed(1)}c`);
@@ -435,6 +648,66 @@ export function buildDecision({
     reasons.push('signals disabled');
   }
 
+  // Deterministic short-session TA horizon scaling (tau-aware)
+  if (cfg.useSessionTA !== false && remaining != null && signal) {
+    const winSec = Number(market?.windowSeconds || POLY_WINDOW_SECONDS);
+    const sess = sessionTA({ signal, remaining, windowSec: winSec });
+    if (sess.veto) {
+      eligible = false;
+      reasons.push(`sessionTA veto — ${sess.reasons.join(', ')}`);
+    } else {
+      score += sess.scoreAdj;
+      if (sess.reasons.length) reasons.push(`sessionTA ${sess.scoreAdj>0?'+':''}${sess.scoreAdj} (${sess.reasons.join('; ')})`);
+    }
+  }
+
+  // Hard orderbook probing — depth + slippage gate (not just score)
+  if (eligible && depth?.[outcome] && cfg.requireTightSpread !== false) {
+    const q = bookQuality(depth[outcome]);
+    if (q < Number(cfg.bookQualityMin ?? 0.18) && !(bookMeta?.arbGap > 0.012)) {
+      eligible = false;
+      reasons.push(`book thin q=${q.toFixed(2)} < ${(cfg.bookQualityMin??0.18).toFixed(2)}`);
+    } else {
+      // Estimate actual fill for this ticket size
+      const needUsd = Math.max(5, Number(cfg.minPositionSize ?? 5));
+      const cost = estimateBuyCost(depth[outcome].asks || [], needUsd);
+      if (cost && (cost.exhausted || cost.slippagePct > Number(cfg.liquiditySlippageMaxPct ?? 1.5))) {
+        eligible = false;
+        reasons.push(`liq fail fill ${(cost.fillRatio*100).toFixed(0)}% slip ${cost.slippagePct.toFixed(2)}%`);
+      }
+    }
+  }
+
+  // Target-context veto — strike unreachable or implausible feed gap
+  // `forecast` here is the precomputed probUp; if not supplied we can't veto
+  if (eligible && cfg.useStrikeForecast !== false && forecast?.probUp != null) {
+    // also handle the targetContext path when caller supplied full market object
+    const targetV = vetoForOutcome({ fc: forecast, z: forecast.z, remaining, spot: signal?.price }, price, outcome, cfg);
+    if (targetV.veto && targetV.implausible) {
+      // implausible was already silenced above; keep silent
+    } else if (targetV.veto) {
+      eligible = false;
+      reasons.push(`target veto — ${targetV.reason}`);
+    }
+    // also veto extreme time pressure with no edge
+    if (eligible && remaining < 50 && forecastMeta && Math.abs(Number(forecastMeta.z||0)) > 1.2 && forecastMeta.netEdge < -0.02) {
+      eligible = false;
+      reasons.push(`target unreachable z=${Number(forecastMeta.z).toFixed(2)} in ${remaining}s`);
+    }
+  }
+
+  // Neutral signals must NOT trade directionally — only arb may rescue
+  // Previously this branch scored +edge*35 and traded on noise; now hard block
+  // This is re-enforced here in case earlier neutral handling slipped through
+  if (eligible && cfg.useSignals && signal && signal.direction === 'neutral') {
+    // already handled above, but double-guard: need forecast edge or arb gap
+    const needArb = Number(cfg.minArbGap ?? 0.012);
+    if (!(bookMeta?.arbGap > needArb) && !(forecastMeta && forecastMeta.netEdge > 0.02)) {
+      eligible = false;
+      reasons.push('neutral blocked — need arb gap or forecast edge');
+    }
+  }
+
   // Break chronic single-side bias
   const bal = sideBalanceBonus(outcome, cfg, sideBalance);
   if (bal.bonus) {
@@ -451,5 +724,7 @@ export function buildDecision({
     score,
     reasons,
     book: bookMeta,
+    forecast: forecastMeta,
+    micro: microMeta,
   };
 }

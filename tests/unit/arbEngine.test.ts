@@ -1,6 +1,20 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { detectAndExecuteArbPackage, getArbPackageMetrics } from '../../src/polymarket/arbEngine.js';
+import {
+  detectAndExecuteArbPackage,
+  detectAndExecuteArbPackages,
+  getArbPackageMetrics,
+} from '../../src/polymarket/arbEngine.js';
 import { saveAllPackages, resetPackages } from '../../src/polymarket/arbPersistence.js';
+
+const deepBook = (upAsk, downAsk, size = 500) => ({
+  up: { bestAsk: upAsk, asks: [{ price: upAsk, size, value: upAsk * size }] },
+  down: { bestAsk: downAsk, asks: [{ price: downAsk, size, value: downAsk * size }] },
+});
+
+const fillOk = async (pending) => ({
+  ok: true,
+  position: { id: 'pos', shares: pending.plan.shares },
+});
 
 describe('Atomic Arb Engine', () => {
   beforeEach(() => {
@@ -17,34 +31,27 @@ describe('Atomic Arb Engine', () => {
       acceptingOrders: true,
     };
 
-    const depth = {
-      up: { bestAsk: 0.34 },
-      down: { bestAsk: 0.62 },
-    };
-
     const cfg = {
       clobArbEnabled: true,
       minArbGap: 0.015,
       maxArbPackages: 4,
       paperBankroll: 100,
+      paperInitialDeposit: 100,
       arbBankrollFrac: 0.2,
       arbMaxUsd: 50,
       minPositionSize: 0.5,
+      minArbPackageUsd: 0,
       mode: 'paper',
     };
 
-    // executePendingTrade returns { ok, ... } on every path, never a bare boolean
-    // (backlog item 27 — coercing it with !! is what recorded refusals as fills).
-    const mockExecuteTrade = async () => ({ ok: true });
-
     const pkg = await detectAndExecuteArbPackage({
       market,
-      depth,
+      depth: deepBook(0.34, 0.62),
       prices: { up: 0.34, down: 0.62 },
       cfg,
       mode: 'paper',
       log: () => {},
-      executeTrade: mockExecuteTrade,
+      executeTrade: fillOk,
       adjustPaperCash: () => {},
       saveTrade: () => {},
       botState: { config: { maxConcurrentPerSlug: 1 }, positions: [] },
@@ -54,15 +61,9 @@ describe('Atomic Arb Engine', () => {
     expect(pkg?.status).toBe('LOCKED');
     expect(pkg?.symbol).toBe('ETH');
     expect(pkg?.totalCost).toBe(20);
-    expect(pkg?.expectedPayout).toBe(20.83); // 20.833 shares * $1.00
-    // Net of both entry taker fees (item 7). This asserted 0.83 — the gross
-    // figure — which is precisely the number the dashboard overstated by 5.2x.
-    // Settlement redeems the set fee-free, so the two entry fees are the whole
-    // cost: 20.833 sh at 0.34 and 0.62 => $0.67 combined.
+    expect(pkg?.expectedPayout).toBe(20.83);
     expect(pkg?.lockedProfitUsd).toBe(0.16);
     expect(pkg?.feesEstUsd).toBeCloseTo(0.67, 2);
-    // Gross minus fees, restated so the relationship is explicit rather than a
-    // magic constant.
     expect(pkg!.expectedPayout - pkg!.totalCost - pkg!.feesEstUsd!).toBeCloseTo(pkg!.lockedProfitUsd, 2);
     expect(pkg?.legs.up.filled).toBe(true);
     expect(pkg?.legs.down.filled).toBe(true);
@@ -70,18 +71,16 @@ describe('Atomic Arb Engine', () => {
 
   it('rejects arbitrage execution when ask sum exceeds 1 - minArbGap', async () => {
     const market = { symbol: 'BTC', slug: 'btc-5m-test', conditionId: '0xbtc5m', outcomes: ['Up', 'Down'], tokenIds: { up: 'u', down: 'd' } };
-    const depth = { up: { bestAsk: 0.51 }, down: { bestAsk: 0.50 } }; // sum = 1.01 (no gap)
-
-    const cfg = { clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 4, paperBankroll: 100 };
+    const cfg = { clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 4, paperBankroll: 100, minArbPackageUsd: 0 };
 
     const pkg = await detectAndExecuteArbPackage({
       market,
-      depth,
+      depth: deepBook(0.51, 0.50),
       prices: { up: 0.51, down: 0.50 },
       cfg,
       mode: 'paper',
       log: () => {},
-      executeTrade: async () => ({ ok: true }),
+      executeTrade: fillOk,
       adjustPaperCash: () => {},
       saveTrade: () => {},
       botState: { config: {}, positions: [] },
@@ -90,10 +89,27 @@ describe('Atomic Arb Engine', () => {
     expect(pkg).toBeNull();
   });
 
-  // Polymarket reports negRisk:false on every btc/eth-updown market, yet those are
-  // ordinary complementary binaries whose legs still redeem exactly $1.00 together.
-  // Gating on negRisk disabled arb entirely; the payout guarantee comes from the
-  // binary condition, so that is what must be checked.
+  it('refuses arb without a real ask ladder', async () => {
+    const market = {
+      symbol: 'ETH', slug: 'eth-touch', conditionId: '0xtouch',
+      outcomes: ['Up', 'Down'], tokenIds: { up: 'u', down: 'd' },
+    };
+    const cfg = { clobArbEnabled: true, minArbGap: 0.015, paperBankroll: 100, minArbPackageUsd: 0 };
+    const pkg = await detectAndExecuteArbPackage({
+      market,
+      depth: { up: { bestAsk: 0.34 }, down: { bestAsk: 0.62 } },
+      prices: { up: 0.34, down: 0.62 },
+      cfg,
+      mode: 'paper',
+      log: () => {},
+      executeTrade: fillOk,
+      adjustPaperCash: () => {},
+      saveTrade: () => {},
+      botState: { config: {}, positions: [] },
+    });
+    expect(pkg).toBeNull();
+  });
+
   it('locks arb on a complementary binary even when negRisk is false', async () => {
     const market = {
       symbol: 'ETH',
@@ -103,12 +119,14 @@ describe('Atomic Arb Engine', () => {
       tokenIds: { up: 'token-up-1', down: 'token-down-1' },
       negRisk: false,
     };
-    const depth = { up: { bestAsk: 0.34 }, down: { bestAsk: 0.62 } };
-    const cfg = { clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 4, paperBankroll: 100, mode: 'paper' };
+    const cfg = {
+      clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 4,
+      paperBankroll: 100, paperInitialDeposit: 100, minArbPackageUsd: 0, mode: 'paper',
+    };
 
     const pkg = await detectAndExecuteArbPackage({
-      market, depth, prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
-      log: () => {}, executeTrade: async () => ({ ok: true }), adjustPaperCash: () => {}, saveTrade: () => {},
+      market, depth: deepBook(0.34, 0.62), prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
+      log: () => {}, executeTrade: fillOk, adjustPaperCash: () => {}, saveTrade: () => {},
       botState: { config: {}, positions: [] },
     });
 
@@ -122,12 +140,11 @@ describe('Atomic Arb Engine', () => {
     ['both legs sharing one token', { conditionId: '0xabc', outcomes: ['Up', 'Down'], tokenIds: { up: 'u', down: 'u' } }],
   ])('rejects arb execution on a market with %s', async (_label, marketShape) => {
     const market = { symbol: 'ETH', slug: 'eth-not-a-binary', ...marketShape };
-    const depth = { up: { bestAsk: 0.34 }, down: { bestAsk: 0.62 } }; // big gap, would lock if allowed
-    const cfg = { clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 4, paperBankroll: 100, mode: 'paper' };
+    const cfg = { clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 4, paperBankroll: 100, minArbPackageUsd: 0, mode: 'paper' };
 
     const pkg = await detectAndExecuteArbPackage({
-      market, depth, prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
-      log: () => {}, executeTrade: async () => ({ ok: true }), adjustPaperCash: () => {}, saveTrade: () => {},
+      market, depth: deepBook(0.34, 0.62), prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
+      log: () => {}, executeTrade: fillOk, adjustPaperCash: () => {}, saveTrade: () => {},
       botState: { config: {}, positions: [] },
     });
 
@@ -138,24 +155,99 @@ describe('Atomic Arb Engine', () => {
     const market1 = { symbol: 'ETH', slug: 'eth-1', conditionId: '0xeth1', outcomes: ['Up', 'Down'], tokenIds: { up: 'u1', down: 'd1' } };
     const market2 = { symbol: 'ETH', slug: 'eth-2', conditionId: '0xeth2', outcomes: ['Up', 'Down'], tokenIds: { up: 'u2', down: 'd2' } };
 
-    const cfg = { clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 1, paperBankroll: 100, mode: 'paper' };
-    const depth = { up: { bestAsk: 0.34 }, down: { bestAsk: 0.62 } };
+    const cfg = {
+      clobArbEnabled: true, minArbGap: 0.015, maxArbPackages: 1,
+      paperBankroll: 100, paperInitialDeposit: 100, minArbPackageUsd: 0, mode: 'paper',
+    };
+    const depth = deepBook(0.34, 0.62);
 
-    // Package 1 fills successfully
     const pkg1 = await detectAndExecuteArbPackage({
       market: market1, depth, prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
-      log: () => {}, executeTrade: async () => ({ ok: true }), adjustPaperCash: () => {}, saveTrade: () => {},
+      log: () => {}, executeTrade: fillOk, adjustPaperCash: () => {}, saveTrade: () => {},
       botState: { config: {}, positions: [] },
     });
     expect(pkg1?.status).toBe('LOCKED');
 
-    // Package 2 should be blocked because maxArbPackages is 1
     const pkg2 = await detectAndExecuteArbPackage({
       market: market2, depth, prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
-      log: () => {}, executeTrade: async () => ({ ok: true }), adjustPaperCash: () => {}, saveTrade: () => {},
+      log: () => {}, executeTrade: fillOk, adjustPaperCash: () => {}, saveTrade: () => {},
       botState: { config: {}, positions: [] },
     });
     expect(pkg2).toBeNull();
+  });
+
+  it('multi-fill loop locks up to maxArbPerSlug from residual depth', async () => {
+    const market = {
+      symbol: 'ETH',
+      slug: 'eth-5m-same',
+      conditionId: '0xethsame',
+      outcomes: ['Up', 'Down'],
+      tokenIds: { up: 'u', down: 'd' },
+    };
+    const cfg = {
+      clobArbEnabled: true,
+      minArbGap: 0.015,
+      maxArbPackages: 6,
+      maxArbPerSlug: 3,
+      paperBankroll: 500,
+      paperInitialDeposit: 500,
+      arbMaxUsd: 50,
+      arbBankrollFrac: 0.2,
+      minArbPackageUsd: 0,
+      mode: 'paper',
+    };
+    const botState = { config: { maxConcurrentPerSlug: 1 }, positions: [] };
+
+    const pkgs = await detectAndExecuteArbPackages({
+      market,
+      depth: deepBook(0.34, 0.62, 2000),
+      prices: { up: 0.34, down: 0.62 },
+      cfg,
+      mode: 'paper',
+      log: () => {},
+      executeTrade: fillOk,
+      adjustPaperCash: () => {},
+      saveTrade: () => {},
+      botState,
+    });
+    expect(pkgs.length).toBe(3);
+    expect(pkgs.every((p) => p.status === 'LOCKED')).toBe(true);
+
+    const blocked = await detectAndExecuteArbPackage({
+      market, depth: deepBook(0.34, 0.62, 2000), prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
+      log: () => {}, executeTrade: fillOk, adjustPaperCash: () => {}, saveTrade: () => {},
+      botState,
+    });
+    expect(blocked).toBeNull();
+  });
+
+  it('sizes leg 2 from leg 1 matched shares', async () => {
+    const market = {
+      symbol: 'ETH', slug: 'eth-parity', conditionId: '0xparity',
+      outcomes: ['Up', 'Down'], tokenIds: { up: 'u', down: 'd' },
+    };
+    const cfg = {
+      clobArbEnabled: true, minArbGap: 0.015, paperBankroll: 100, paperInitialDeposit: 100,
+      arbMaxUsd: 50, arbBankrollFrac: 0.2, minArbPackageUsd: 0, mode: 'paper',
+    };
+    const plans = [];
+    const executeTrade = async (pending) => {
+      plans.push(pending.plan);
+      if (pending.outcome === 'up') {
+        return { ok: true, position: { shares: 10 } };
+      }
+      return { ok: true, position: { shares: pending.plan.shares } };
+    };
+
+    const pkg = await detectAndExecuteArbPackage({
+      market, depth: deepBook(0.34, 0.62), prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
+      log: () => {}, executeTrade, adjustPaperCash: () => {}, saveTrade: () => {},
+      botState: { config: {}, positions: [] },
+    });
+
+    expect(pkg?.status).toBe('LOCKED');
+    expect(plans[1].shares).toBe(10);
+    expect(pkg?.shares).toBe(10);
   });
 
   it('computes package metrics correctly', () => {
@@ -175,17 +267,19 @@ describe('Atomic Arb Engine', () => {
 
   it('passes valid numeric entryPrice in order plans to trade execution', async () => {
     const market = { symbol: 'ETH', slug: 'eth-plan-test', conditionId: '0xethplan', outcomes: ['Up', 'Down'], tokenIds: { up: 'u', down: 'd' } };
-    const depth = { up: { bestAsk: 0.34 }, down: { bestAsk: 0.62 } };
-    const cfg = { clobArbEnabled: true, minArbGap: 0.015, paperBankroll: 100, mode: 'paper' };
+    const cfg = {
+      clobArbEnabled: true, minArbGap: 0.015, paperBankroll: 100, paperInitialDeposit: 100,
+      minArbPackageUsd: 0, mode: 'paper',
+    };
 
     const capturedPlans: any[] = [];
     const interceptExecuteTrade = async (pending: any) => {
       capturedPlans.push(pending.plan);
-      return { ok: true, position: { id: 'p1' } };
+      return { ok: true, position: { id: 'p1', shares: pending.plan.shares } };
     };
 
     await detectAndExecuteArbPackage({
-      market, depth, prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
+      market, depth: deepBook(0.34, 0.62), prices: { up: 0.34, down: 0.62 }, cfg, mode: 'paper',
       log: () => {}, executeTrade: interceptExecuteTrade, adjustPaperCash: () => {}, saveTrade: () => {},
       botState: { config: {}, positions: [] },
     });
@@ -197,7 +291,104 @@ describe('Atomic Arb Engine', () => {
       expect(plan.entryPrice).toBeGreaterThan(0);
       expect(plan.packageId).toBeDefined();
       expect(plan.isArbLeg).toBe(true);
+      expect(plan.exitMode).toBe('arb_capture');
+      expect(plan.slPct).toBeUndefined();
+      expect(plan.targetTp).toBeUndefined();
     }
+  });
+
+  it('paper-merges locked package immediately when both legs exist', async () => {
+    const { captureArbPackage, evaluateSpreadCapture } = await import('../../src/polymarket/arbEngine.js');
+    const pkg: any = {
+      packageId: 'pkg-merge-test',
+      symbol: 'BTC',
+      slug: 'btc-merge',
+      shares: 20,
+      totalCost: 19.2,
+      expectedPayout: 20,
+      lockedProfitUsd: 0.55,
+      feesEstUsd: 0.25,
+      status: 'LOCKED',
+      mode: 'paper',
+      legs: { up: { tokenId: 'u' }, down: { tokenId: 'd' } },
+    };
+    saveAllPackages([pkg]);
+    const botState = {
+      positions: [
+        { id: '1', packageId: 'pkg-merge-test', outcome: 'up', shares: 20, entryPrice: 0.48, entryFee: 0.12, mode: 'paper', symbol: 'BTC', closed: false },
+        { id: '2', packageId: 'pkg-merge-test', outcome: 'down', shares: 20, entryPrice: 0.48, entryFee: 0.13, mode: 'paper', symbol: 'BTC', closed: false },
+      ],
+    };
+    let cash = 0;
+    const trades: any[] = [];
+    const res = await captureArbPackage({
+      pkg,
+      mode: 'paper',
+      cfg: { arbExitMode: 'merge' },
+      botState,
+      adjustPaperCash: (n) => { cash += n; },
+      saveTrade: (t) => trades.push(t),
+      prefer: 'merge',
+    });
+    expect(res.ok).toBe(true);
+    expect(pkg.status).toBe('MERGED');
+    expect(botState.positions.every((p) => p.closed)).toBe(true);
+    expect(cash).toBeCloseTo(20, 1);
+    expect(trades).toHaveLength(2);
+    expect(trades[0].exitReason).toBe('arb_merge');
+
+    const thin = evaluateSpreadCapture({
+      pkg: { shares: 100, totalCost: 99.5, lockedProfitUsd: 0.3, feesEstUsd: 0.2 },
+      bidUp: 0.49,
+      bidDown: 0.49,
+      minBidSum: 0.985,
+      minCaptureFrac: 0.7,
+    });
+    expect(thin.ok).toBe(false);
+
+    const fat = evaluateSpreadCapture({
+      pkg: { shares: 100, totalCost: 96, lockedProfitUsd: 3.5, feesEstUsd: 0.5 },
+      bidUp: 0.50,
+      bidDown: 0.495,
+      feeParams: { rate: 0, exponent: 1 },
+      minBidSum: 0.985,
+      minCaptureFrac: 0.7,
+    });
+    expect(fat.ok).toBe(true);
+  });
+
+  it('skips crumb packages below minArbLockedProfitUsd', async () => {
+    const market = {
+      symbol: 'ETH',
+      slug: 'eth-crumb',
+      conditionId: '0xcrumb',
+      outcomes: ['Up', 'Down'],
+      tokenIds: { up: 'u', down: 'd' },
+    };
+    const cfg = {
+      clobArbEnabled: true,
+      minArbGap: 0.005,
+      arbMinMarginPct: 0.001,
+      minArbLockedProfitUsd: 5,
+      minArbPackageUsd: 0,
+      paperBankroll: 500,
+      paperInitialDeposit: 500,
+      arbBankrollFrac: 0.5,
+      arbMaxUsd: 200,
+    };
+    const pkg = await detectAndExecuteArbPackage({
+      market,
+      depth: deepBook(0.34, 0.62),
+      prices: { up: 0.34, down: 0.62 },
+      cfg,
+      mode: 'paper',
+      log: () => {},
+      executeTrade: fillOk,
+      adjustPaperCash: () => {},
+      saveTrade: () => {},
+      botState: { config: {}, positions: [] },
+    });
+    expect(pkg).toBeNull();
   });
 
   it('resets packages by mode cleanly (item 24)', () => {
@@ -207,7 +398,6 @@ describe('Atomic Arb Engine', () => {
       { packageId: 'live-1', mode: 'live', status: 'LOCKED', lockedProfitUsd: 0.8 },
     ] as any);
 
-    // Resetting paper removes paper-1 and paper-2, preserving live-1
     const { removed } = resetPackages('paper');
     expect(removed).toBe(2);
 
@@ -219,7 +409,6 @@ describe('Atomic Arb Engine', () => {
     expect(liveMetrics.totalPackages).toBe(1);
     expect(liveMetrics.activeLocked).toBe(1);
 
-    // Resetting live removes live-1
     const { removed: removedLive } = resetPackages('live');
     expect(removedLive).toBe(1);
     expect(getArbPackageMetrics('live').totalPackages).toBe(0);

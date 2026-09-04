@@ -118,6 +118,57 @@ export function resolveNumber(candidates = [], fallback = undefined) {
 }
 
 /**
+ * Write-side precedence: may `tier` overwrite a field currently owned by
+ * `ownerTier`?
+ *
+ * The read side above answered "which value wins". This answers "who may
+ * change it", which is the half that was missing — and its absence is why an
+ * operator's setting did not stick. Measured on the live store 2026-08-30, the
+ * attribution log held the same three reverts on repeat:
+ *
+ *   paper.holdToSettleFavorites  true -> false  (governor)
+ *   paper.minConfidence           0.6 -> 0.5    (governor)
+ *   paper.kellyFraction          0.15 -> 0.1    (governor)
+ *
+ * A regime switch rewrites ~19 keys, so every ~120s the governor reasserted its
+ * overlay over whatever the operator had just typed into the dashboard. The UI
+ * saved correctly; the value was then quietly replaced.
+ *
+ * Rule: a writer may claim a field whose current owner is at or below its own
+ * tier. Automation therefore still owns everything the operator has not touched
+ * — regime adaptation keeps working, which is the point of having a governor —
+ * but it can no longer silently undo a human decision.
+ *
+ * `system` sits outside the policy ordering (derived facts like the paper cash
+ * balance, not settings anyone chose), so it is never policed and never blocks.
+ */
+export function canWrite(tier, ownerTier) {
+  if (tier === 'system' || ownerTier === 'system') return true;
+  if (!ownerTier) return true;
+  return compareTiers(tier, ownerTier) >= 0;
+}
+
+/**
+ * Split a patch into the entries a writer at `tier` may apply and the entries
+ * it must leave alone, given who currently owns each field.
+ *
+ * `ownerOf(field)` returns the owning tier for a field in the target scope, or
+ * null when nobody has claimed it. Returning the blocked set rather than
+ * dropping it silently is deliberate: a refused automation write is exactly the
+ * thing an operator asking "why didn't my change hold" needs to see.
+ */
+export function partitionPatchByAuthority(patch = {}, tier = 'system', ownerOf = () => null) {
+  const allowed = {};
+  const blocked = [];
+  for (const [field, value] of Object.entries(patch || {})) {
+    const ownerTier = ownerOf(field);
+    if (canWrite(tier, ownerTier)) allowed[field] = value;
+    else blocked.push({ field, value, ownerTier });
+  }
+  return { allowed, blocked };
+}
+
+/**
  * Single unified resolver for directional vs pure arb permissions (D3 & Item 3).
  * Explicit precedence: Operator > Guardrail > Automation.
  */
@@ -137,7 +188,7 @@ export function resolveTradingPermissions({
   }
 
   // 2. Guardrail Tier (Drawdown breaker or Live capital protection)
-  if (governorDecision?.drawdownBreakerActive === true) {
+  if (governorDecision?.drawdownBreakerActive === true || governorDecision?.breakerActive === true) {
     return {
       directionalAllowed: false,
       arbOnly: true,

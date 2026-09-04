@@ -108,7 +108,9 @@ export default function NotificationsPanel({
                   </div>
                   <div className="text-muted-foreground font-mono text-xs">
                     {p.msg || p.plan?.msg || 'Awaiting approve'}
-                    {p.plan?.slPct != null && ` · SL -${p.plan.slPct}% · TP +${p.plan.targetTp}%`}
+                    {(p.plan?.isArbLeg || p.plan?.packageId || p.plan?.exitMode === 'settlement')
+                      ? ' · Hold to settle (arb)'
+                      : (p.plan?.slPct != null && ` · SL -${p.plan.slPct}% · TP +${p.plan.targetTp}%`)}
                   </div>
                 </div>
               ))}

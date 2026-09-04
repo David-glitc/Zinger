@@ -1,6 +1,6 @@
 {
   "name": "zinger",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Polymarket Zinger — paper/live bot, operator dashboard, and ML traces (TypeScript)",
@@ -16,6 +16,13 @@
     "check-settlement": "tsx scripts/check-settlement.ts",
     "dry-run": "tsx scripts/dry-run.ts",
     "paper-test": "tsx scripts/paper-test.ts",
+    "historical-backtest": "tsx scripts/historical-backtest.ts",
+    "observe": "tsx scripts/observe-session.ts --interval=60",
+    "session:200": "tsx scripts/directional-session-200.ts --target=200 --bankroll=1000",
+    "session:arb": "tsx scripts/arb-only-session.ts --bankroll=1000 --observe --target=200",
+    "report:pdf": "cd docs/reports && tectonic zinger-status-report.tex",
+    "report:arb-pdf": "cd docs/reports && tectonic zinger-arb-run-report.tex",
+    "report:session": "cd docs/reports && tectonic zinger-arb-session-review.tex",
     "build:frontend": "npm --prefix frontend run build",
     "typecheck:frontend": "npm --prefix frontend run typecheck",
     "ci": "npm run typecheck && npm test && npm run test:perf"

@@ -46,9 +46,14 @@ function slugWindowEndMs(slug) {
 export function buildDataAssurance(opts = {}) {
   const now = Date.now();
   const checks = [];
+  // Arb-only does not need spot/signal — only complementary CLOB books.
+  const arbOnly = opts.forceArbOnly === true;
 
   const spot = opts.spotPrices || {};
-  for (const asset of ['btc', 'eth']) {
+  const spotAssets = Array.isArray(opts.assets) && opts.assets.length
+    ? opts.assets.map((a) => String(a).toLowerCase())
+    : ['btc', 'eth'];
+  for (const asset of spotAssets) {
     const tick = spot[asset];
     const age = ageMs(tick?.ts || tick?.timestamp);
     const price = Number(tick?.price);
@@ -58,12 +63,13 @@ export function buildDataAssurance(opts = {}) {
       Number.isFinite(price) && price > 0
         ? `$${price} · age ${age != null ? `${Math.round(age / 1000)}s` : '?'}`
         : 'missing spot',
-      { level: 'error', blockBuys: true },
+      { level: arbOnly ? 'warn' : 'error', blockBuys: !arbOnly },
     ));
   }
 
   const signals = opts.signals || {};
-  for (const asset of ['btc', 'eth']) {
+  const signalAssets = ['btc', 'eth']; // directional signal stack is still BTC/ETH
+  for (const asset of signalAssets) {
     const sig = signals[asset];
     const age = ageMs(sig?.timestamp || opts.feed?.lastSignalAt);
     const present = !!sig && Number.isFinite(Number(sig.confidence));
@@ -74,7 +80,7 @@ export function buildDataAssurance(opts = {}) {
       present
         ? `${sig.direction || 'n/a'} conf=${sig.confidence ?? '—'} · age ${age != null ? `${Math.round(age / 1000)}s` : '?'}${fresh ? '' : ' (stale)'}`
         : 'missing signal',
-      { level: present ? (fresh ? 'ok' : 'warn') : 'error', blockBuys: !present },
+      { level: present ? (fresh ? 'ok' : 'warn') : (arbOnly ? 'warn' : 'error'), blockBuys: !arbOnly && !present },
     ));
   }
 
@@ -92,24 +98,30 @@ export function buildDataAssurance(opts = {}) {
     const down = Number(m?.prices?.down);
     return Number.isFinite(up) && up > 0 && Number.isFinite(down) && down > 0;
   });
+  // Between windows there are often zero isCurrent markets — that is normal, not
+  // a data fault. Blocking all buys on an empty set made the bot look dead while
+  // the scan loop was still running and the observer was still polling.
+  const midsOk = markets.length === 0 || priced.length === markets.length;
   checks.push(check(
     'market_mids',
-    markets.length > 0 && priced.length === markets.length,
+    midsOk,
     markets.length
       ? `${priced.length}/${markets.length} current windows have UP+DOWN mids`
-      : 'no current markets',
-    { level: 'error', blockBuys: true },
+      : 'between windows — no current markets (ok)',
+    { level: markets.length === 0 ? 'warn' : 'error', blockBuys: markets.length > 0 && !midsOk },
   ));
 
   const withBeat = markets.filter((m) => Number(m?.priceToBeat) > 0
     || Number(opts.priceToBeat?.[String(m.symbol || '').toLowerCase()]?.openPrice) > 0);
+  // Arb packages only need complementary CLOB asks — Chainlink to-beat is a
+  // directional strike input. Do not block arb-only buys on missing oracle open.
   checks.push(check(
     'price_to_beat',
     markets.length === 0 || withBeat.length === markets.length,
     markets.length
       ? `${withBeat.length}/${markets.length} windows have Chainlink open (to-beat)`
       : 'n/a',
-    { level: 'error', blockBuys: true },
+    { level: arbOnly ? 'warn' : 'error', blockBuys: !arbOnly },
   ));
 
   const eventStarts = markets.filter((m) => m?.eventStartTime || (m?.endTime && m.endTime > 1e9));

@@ -34,12 +34,11 @@ const fusion = globalThis.__zingerFusionCtx || {};
 const ONE_MIN_DEPTH = Number(process.env.ZINGER_PAPER_1M_DEPTH || 1000);
 const FIVE_MIN_DEPTH = Number(process.env.ZINGER_PAPER_5M_DEPTH || 1000);
 
-// The asset/duration/window loops previously broke at a hardcoded 60 trades.
-// Because BTC 5m is iterated first, every run stopped inside it: ETH and the
-// 15m/30m/1h durations were never reached, so a "sweep" compared variants on
-// one asset and one duration and called it a config. Configurable now, and high
-// enough by default that the span is the binding constraint rather than a cap.
-const MAX_TRADES = Number(process.env.ZINGER_PAPER_MAX_TRADES || 5000);
+// Configurable via CLI --max-trades= or ZINGER_PAPER_MAX_TRADES.
+const MAX_TRADES_DEFAULT = Number(process.env.ZINGER_PAPER_MAX_TRADES || 5000);
+function tradeLimit() {
+  return Number(process.env.ZINGER_PAPER_MAX_TRADES || MAX_TRADES_DEFAULT);
+}
 
 const candleCache = {};
 async function mkCandles(symbol) {
@@ -238,14 +237,16 @@ const entryT = Math.min(ws + Math.round(windowSec * 0.35), t1 - 10);
           shares, confidence: conf, direction: dir,
           exit: res.exitReason, gross: res.gross, fee: res.fee,
           score: base?.score, method: sizing.kelly?.method || 'probe',
+          planMethod: plan.method,
+          holdToSettle: !!plan.holdToSettle,
         };
         trades.push(trade);
         dbg.traded++;
-        if (trades.length >= MAX_TRADES) break;
+        if (trades.length >= tradeLimit()) break;
       }
-      if (trades.length >= MAX_TRADES) break;
+      if (trades.length >= tradeLimit()) break;
     }
-    if (trades.length >= MAX_TRADES) break;
+    if (trades.length >= tradeLimit()) break;
   }
 
   return { trades, cash, bankroll0, dbg };
@@ -264,6 +265,10 @@ async function main() {
   const durations = durArg ? durArg.split(',').filter(Boolean) : ['5m', '15m', '30m', '1h'];
   const spanArg = args.find((a) => a.startsWith('--span='))?.split('=')[1];
   const spanSec = Number(spanArg ?? 3600);
+  const maxTradesArg = args.find((a) => a.startsWith('--max-trades='))?.split('=')[1];
+  const holdSettleSweep = args.includes('--hold-settle-sweep');
+  const maxTrades = maxTradesArg ? Number(maxTradesArg) : MAX_TRADES_DEFAULT;
+  if (maxTradesArg) process.env.ZINGER_PAPER_MAX_TRADES = String(maxTrades);
 
   const [btc1, eth1] = await Promise.all([mkCandles('BTCUSDT'), mkCandles('ETHUSDT')]);
   const lastTs = Math.max(
@@ -272,7 +277,30 @@ async function main() {
   const t1 = lastTs;
   const t0 = t1 - spanSec;
 
-  const baseCfg = cfgJson ? JSON.parse(cfgJson) : {
+  const baseCfg = cfgJson ? JSON.parse(cfgJson) : (holdSettleSweep ? {
+    mode: 'paper',
+    paperBankroll: 200,
+    minConfidence: 0.62,
+    minPrice: 0.42,
+    maxPrice: 0.70,
+    enabledAssets: assets,
+    enabledDurations: ['15m', '30m', '1h'],
+    kellyFraction: 0.22,
+    maxPositionPct: 0.18,
+    maxPositionSize: 36,
+    minPositionSize: 2,
+    useKellySizing: true,
+    adaptiveSl: false,
+    feeCategory: 'crypto',
+    underdogMaxPrice: 0.52,
+    favoriteMinPrice: 0.50,
+    favoriteMaxPrice: 0.72,
+    holdToSettleUnderdogs: true,
+    holdToSettleFavorites: true,
+    holdToSettleDisasterSlPct: 48,
+    certaintySizing: true,
+    certaintyMaxPct: 0.35,
+  } : {
     mode: 'paper',
     paperBankroll: 15,
     minConfidence: 0.42,
@@ -293,7 +321,7 @@ async function main() {
     underdogMaxPrice: 0.42,
     favoriteMinPrice: 0.55,
     holdToSettleUnderdogs: true,
-  };
+  });
 
   const run = async (cfg) => {
     const out = await runSession(cfg, { startSec: t0, endSec: t1 });
@@ -321,11 +349,24 @@ async function main() {
   };
 
   let results;
-  if (sweep) {
+  if (sweep || holdSettleSweep) {
     const sweeps = [];
     const futures = [];
     const makeCfg = (patch) => JSON.parse(JSON.stringify({ ...baseCfg, ...patch }));
-    const variants = [
+    const variants = holdSettleSweep ? [
+      { label: 'hts_base', patch: {} },
+      { label: 'hts_conf058', patch: { minConfidence: 0.58 } },
+      { label: 'hts_conf066', patch: { minConfidence: 0.66 } },
+      { label: 'hts_kelly15', patch: { kellyFraction: 0.15, maxPositionPct: 0.14 } },
+      { label: 'hts_kelly28', patch: { kellyFraction: 0.28, maxPositionPct: 0.22 } },
+      { label: 'hts_kelly35', patch: { kellyFraction: 0.35, maxPositionPct: 0.25, maxPositionSize: 50 } },
+      { label: 'hts_pos12', patch: { maxPositionPct: 0.12, kellyFraction: 0.18 } },
+      { label: 'hts_pos24', patch: { maxPositionPct: 0.24, kellyFraction: 0.25 } },
+      { label: 'hts_bank150', patch: { paperBankroll: 150 } },
+      { label: 'hts_bank300', patch: { paperBankroll: 300, maxPositionSize: 54 } },
+      { label: 'hts_30m1h', patch: { enabledDurations: ['30m', '1h'] } },
+      { label: 'hts_fav_only', patch: { holdToSettleUnderdogs: false, holdToSettleFavorites: true, favoriteMinPrice: 0.52 } },
+    ] : [
       { label: 'base', patch: {} },
       { label: 'conf055', patch: { minConfidence: 0.55 } },
       { label: 'conf062', patch: { minConfidence: 0.62 } },
@@ -355,13 +396,17 @@ async function main() {
   console.log(`wrote ${OUTPUT}`);
   if (results.run) {
     const r = results.run;
+    const settle = r.trades.filter((t) => String(t.exit || '').startsWith('settle'));
+    const hts = r.trades.filter((t) => t.holdToSettle);
     console.log(`trades=${r.tradeCount} net=$${r.net} winrate=${r.winRate}% (${r.winners}W/${r.losers}L/${r.flat}F) avgWin=$${r.avgWin} avgLoss=$${r.avgLoss}`);
+    console.log(`settle=${settle.length} holdToSettle=${hts.length} endCash=$${r.endCash}`);
     console.log('dbg', JSON.stringify(r.dbg));
   } else if (results.sweeps) {
-    console.log(`\n${'label'.padEnd(12)} trades  pnl     net      wr%    avgW   avgL   method`);
+    console.log(`\n${'label'.padEnd(14)} trades  net      wr%    settle  hts   endCash`);
     for (const s of results.sweeps) {
-      const m = new Set(s.trades.map((t) => t.method)).size;
-      console.log(`${s.label.padEnd(12)} ${String(s.tradeCount).padEnd(6)} ${s.pnl.toFixed(2).padStart(7)} ${s.net.toFixed(2).padStart(7)} ${String(s.winRate).padStart(5)} ${s.avgWin.toFixed(2).padStart(6)} ${s.avgLoss.toFixed(2).padStart(6)} ${m}`);
+      const settleN = s.trades.filter((t) => String(t.exit || '').startsWith('settle')).length;
+      const htsN = s.trades.filter((t) => t.holdToSettle).length;
+      console.log(`${s.label.padEnd(14)} ${String(s.tradeCount).padEnd(6)} ${s.net.toFixed(2).padStart(7)} ${String(s.winRate).padStart(5)} ${String(settleN).padStart(6)} ${String(htsN).padStart(5)} ${s.endCash.toFixed(2).padStart(8)}`);
     }
     const best = results.sweeps[0];
     console.log(`\nBEST: ${best.label} — ${best.tradeCount} trades, net $${best.net}, win ${best.winRate}% on $${best.cfg.paperBankroll}`);

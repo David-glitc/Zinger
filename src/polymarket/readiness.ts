@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { signedUsd } from '../lib/money.js';
 import { createPublicClient, http, formatUnits } from 'viem';
 import { polygon } from 'viem/chains';
 import { getWallet } from '../lib/wallet.js';
@@ -113,7 +114,7 @@ export async function checkReadiness(config = {}) {
       checks.push({
         id: 'open_positions',
         ok: true,
-        detail: `${positions.length} open position(s) · unrealized PnL ${openPnl >= 0 ? '+' : ''}$${openPnl.toFixed(2)}`,
+        detail: `${positions.length} open position(s) · unrealized PnL ${signedUsd(openPnl)}`,
       });
     }
   }

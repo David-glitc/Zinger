@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { clampConfidence, sizingScalar } from './confidenceScale.js';
 // Kelly Criterion position sizing with dynamic TP/SL, trailing stops, partial profits
 
 const MAX_KELLY = 0.5;
@@ -51,8 +52,12 @@ export function computeKellySize({
   const volTilt = resolveIdioVolTilt({ realizedVol, calmBaseline });
 
   if (!stats || tradeCount < 10) {
-    const cappedConf = Math.min(0.65, Number(signalConfidence || 0));
-    const size = minUsd + (maxUsd - minUsd) * (0.15 + cappedConf * 0.25);
+    // Interpolate across the band the signal actually occupies. The previous
+    // `0.15 + conf * 0.25` assumed confidence reached 1.0 and so never used more
+    // than the bottom third of the range; 0.20..0.85 spans it properly while
+    // keeping a floor for a marginal read.
+    const scalar = sizingScalar(signalConfidence);
+    const size = minUsd + (maxUsd - minUsd) * (0.20 + scalar * 0.65);
     return {
       sizeUsd: Math.round(Math.max(minUsd, Math.min(size, maxUsd)) * 100) / 100,
       kellyFraction: 0,
@@ -75,8 +80,7 @@ export function computeKellySize({
 
   const betPct = Math.max(MIN_KELLY_FRAC, Math.min(stats.kelly * kellyFraction, MAX_KELLY));
   const sizedByBankroll = bankroll * betPct;
-  const cappedConf = Math.min(0.65, Number(signalConfidence || 0));
-  const sizedBySignal = sizedByBankroll * (0.35 + cappedConf * 0.5);
+  const sizedBySignal = sizedByBankroll * (0.4 + sizingScalar(signalConfidence) * 0.8);
   const volScaled = sizedBySignal * volTilt.volScale;
   const finalSize = Math.max(minUsd, Math.min(volScaled, maxUsd, bankroll * maxPositionPct));
 
@@ -198,15 +202,33 @@ export function buildDynamicPlan({ cfg, price, analysis, signal }) {
   const vol = analysis?.volatility?.atrPct || 0.2;
   const volFactor = Math.max(0.5, Math.min(vol / 0.2, 2.2));
   const trendStrength = analysis?.adx?.adx || 25;
-  const conf = Math.max(0, Math.min(0.65, Number(signal?.confidence ?? 0.45)));
+  const conf = clampConfidence(Number(signal?.confidence ?? 0.45));
   const entry = Number(price || 0);
 
   // Cheap underdogs / high-confidence favorites: hold to settlement (skip mid-cycle TP/SL grind)
   const underdogMax = Number(cfg.underdogMaxPrice ?? 0.42);
   const favoriteMin = Number(cfg.favoriteMinPrice ?? 0.55);
   const favoriteMax = Number(cfg.favoriteMaxPrice ?? 0.85);
-  const holdUnderdog = cfg.holdToSettleUnderdogs !== false && entry > 0 && entry <= underdogMax;
-  const holdFavorite = cfg.holdToSettleFavorites === true
+  // The two hold-to-settle bands are configured independently, so nothing kept
+  // them contiguous — and with `underdogMaxPrice` 0.42 against `favoriteMinPrice`
+  // 0.50 they were not. Entries landing in the 0.42–0.50 hole matched neither
+  // band, silently fell through to the mid-window `slPct` grind, and were cut
+  // for a certain loss on a contract that could still have resolved to $1.00.
+  //
+  // Measured on 20 live paper closes 2026-08-30: every single -20% loser entered
+  // in that hole (0.44, 0.45, 0.46, 0.47), while six of seven winners exited at
+  // 0.97–0.99 — i.e. the trades allowed to reach settlement were the ones that
+  // paid. The hole was the loss source, not the entry logic.
+  //
+  // When the operator has enabled hold-to-settle for both cheap and expensive
+  // entries, a gap between them is not a policy anyone chose. So the underdog
+  // ceiling extends up to where the favorite band actually begins. The favorite
+  // confidence gate stays as it is: a rich entry still needs conviction, a cheap
+  // one does not, and that asymmetry is deliberate.
+  const favoritesOn = cfg.holdToSettleFavorites === true;
+  const underdogCeiling = favoritesOn ? Math.max(underdogMax, favoriteMin) : underdogMax;
+  const holdUnderdog = cfg.holdToSettleUnderdogs !== false && entry > 0 && entry <= underdogCeiling;
+  const holdFavorite = favoritesOn
     && entry >= favoriteMin
     && entry <= favoriteMax
     && conf >= Number(cfg.minConfidence ?? 0.5);

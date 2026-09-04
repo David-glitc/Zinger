@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { signedUsd } from '../lib/money.js';
 import TelegramBot from 'node-telegram-bot-api';
 import { generateSummary, generateSummaryIfStale, ask } from '../ai/monitor.js';
 import { chat } from '../ai/llm.js';
@@ -197,7 +198,7 @@ export async function startBot() {
             ``,
             `Status: ${state.running ? '▶️ RUNNING' : '⏸️ STOPPED'} · ${state.mode || cfg.mode || 'paper'}`,
             `Cash: ${port.cash != null ? '$' + Number(port.cash).toFixed(2) : '—'} · Equity: ${port.equity != null ? '$' + Number(port.equity).toFixed(2) : '—'}`,
-            `Net PnL: ${net >= 0 ? '+' : ''}$${net.toFixed(2)} · R $${Number(port.realizedPnl || 0).toFixed(2)} · U $${Number(port.unrealizedPnl || 0).toFixed(2)}`,
+            `Net PnL: ${signedUsd(net)} · R $${Number(port.realizedPnl || 0).toFixed(2)} · U $${Number(port.unrealizedPnl || 0).toFixed(2)}`,
             `Open: ${open} · Pending: ${(state.pendingTrades || []).length} · Scans: ${state.stats?.scansDone || 0}`,
             `Kelly: ${cfg.kellyFraction} · TP: ${cfg.tpPctLow}-${cfg.tpPctHigh}% · SL: ${cfg.slPct}%`,
           ].join('\n'));
@@ -210,7 +211,7 @@ export async function startBot() {
           await sendOrEdit(id, [
             `📈 *PnL — ${state.mode || 'paper'}*`,
             ``,
-            `Net: ${net >= 0 ? '+' : ''}$${net.toFixed(2)}`,
+            `Net: ${signedUsd(net)}`,
             `Realized: $${Number(port.realizedPnl || 0).toFixed(2)}`,
             `Unrealized: $${Number(port.unrealizedPnl || 0).toFixed(2)}`,
             `Cash: $${Number(port.cash || 0).toFixed(2)} · Equity: $${Number(port.equity || 0).toFixed(2)}`,
@@ -237,7 +238,7 @@ export async function startBot() {
           pos.forEach(po => {
             const pnl = po.pnl || 0;
             const dir = (po.outcome || '').toUpperCase();
-            lines.push(`${po.symbol} ${dir} · ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} · ${(po.shares || 0).toFixed(1)}sh · $${(po.markValue || 0).toFixed(2)}`);
+            lines.push(`${po.symbol} ${dir} · ${signedUsd(pnl)} · ${(po.shares || 0).toFixed(1)}sh · $${(po.markValue || 0).toFixed(2)}`);
             lines.push(`  TP ${po.tpPct || '?'}% · SL ${po.slPct || '?'}% · \`${po.id || '?'}\``);
           });
           await sendOrEdit(id, lines.join('\n'));
@@ -343,7 +344,7 @@ export async function startBot() {
         `Mode: ${state.mode || cfg.mode || 'paper'}`,
         `Bankroll: ${port.cash != null ? '$' + port.cash.toFixed(2) : '—'}`,
         `Equity: ${port.equity != null ? '$' + port.equity.toFixed(2) : '—'}`,
-        `PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`,
+        `PnL: ${signedUsd(pnl)}`,
         `Trades: ${closed.length} closed, ${open} open`,
         `Pending: ${(state.pendingTrades || []).length}`,
         `Scans: ${state.stats?.scansDone || 0}`,
@@ -385,7 +386,7 @@ export async function startBot() {
       const text = [
         `📊 PnL — ${state.mode || 'paper'}`,
         '',
-        `Total: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
+        `Total: ${signedUsd(totalPnl)}`,
         `Trades: ${closed.length} (${wins.length}W / ${losses.length}L)`,
         `WR: ${closed.length ? (wins.length / closed.length * 100).toFixed(1) : '—'}%`,
         `Avg W: ${wins.length ? '$' + (wins.reduce((s, t) => s + (t.pnl || 0), 0) / wins.length).toFixed(2) : '—'}`,
@@ -430,7 +431,7 @@ export async function startBot() {
       const lines = [];
       for (const po of pos) {
         const pnl = po.pnl || 0;
-        lines.push(`${po.symbol} ${(po.outcome || '').toUpperCase()} | ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} | ${(po.shares || 0).toFixed(1)}sh $${(po.markValue || 0).toFixed(2)} | SL ${po.slPct || '?'}% | id: \`${po.id || '?'}\``);
+        lines.push(`${po.symbol} ${(po.outcome || '').toUpperCase()} | ${signedUsd(pnl)} | ${(po.shares || 0).toFixed(1)}sh $${(po.markValue || 0).toFixed(2)} | SL ${po.slPct || '?'}% | id: \`${po.id || '?'}\``);
       }
       if (walletPos.length && state.mode !== 'paper') {
         lines.push('—'.repeat(20));
@@ -708,7 +709,7 @@ export async function notifyTrade(trade) {
   const pnl = trade.pnl || 0;
   const text = [
     `${emoji} Trade ${trade.exitReason?.toUpperCase() || 'CLOSED'}`,
-    `${trade.symbol} ${trade.outcome?.toUpperCase()} | PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`,
+    `${trade.symbol} ${trade.outcome?.toUpperCase()} | PnL: ${signedUsd(pnl)}`,
     trade.gainPct ? `Return: ${(trade.gainPct >= 0 ? '+' : '')}${trade.gainPct.toFixed(1)}%` : '',
     `Entry: $${trade.entryPrice?.toFixed(3)} → Exit: $${trade.exitPrice?.toFixed(3) || '—'}`,
   ].filter(Boolean).join('\n');

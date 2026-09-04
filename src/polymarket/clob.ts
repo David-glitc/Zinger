@@ -168,12 +168,26 @@ export async function getDepthForMarket(market) {
     if (!tokenId) continue;
     try {
       const wsBook = getClobWsBook(tokenId);
-      if (wsBook && !wsBook.stale && (wsBook.bestBid || wsBook.bestAsk)) {
+      // Only take the WS book when it actually carries depth. A best-price-only
+      // snapshot (possible right after connect, before the first full `book`
+      // message) would hand downstream an object with no `imbalance` and no
+      // ladder, which is exactly the silent-degradation this path used to have.
+      // Falling through to REST is slower but complete.
+      const wsHasDepth = wsBook?.bidCount > 0 || wsBook?.askCount > 0;
+      if (wsBook && !wsBook.stale && (wsBook.bestBid || wsBook.bestAsk) && wsHasDepth) {
         depth[outcome] = {
+          bids: wsBook.bids || [],
+          asks: wsBook.asks || [],
           bestBid: wsBook.bestBid || 0,
           bestAsk: wsBook.bestAsk || 0,
           mid: wsBook.mid || 0,
-          spread: (wsBook.bestBid && wsBook.bestAsk) ? wsBook.bestAsk - wsBook.bestBid : 0,
+          spread: wsBook.spread ?? ((wsBook.bestBid && wsBook.bestAsk) ? wsBook.bestAsk - wsBook.bestBid : 0),
+          spreadPct: wsBook.spreadPct ?? 0,
+          totalBidVol: wsBook.totalBidVol ?? 0,
+          totalAskVol: wsBook.totalAskVol ?? 0,
+          imbalance: wsBook.imbalance ?? 0,
+          bidCount: wsBook.bidCount ?? 0,
+          askCount: wsBook.askCount ?? 0,
           source: 'clob-ws',
         };
         continue;

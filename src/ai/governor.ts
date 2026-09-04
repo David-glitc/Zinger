@@ -16,6 +16,7 @@ import { chat, llmStatus } from './llm.js';
 import { loadFileOrStore, saveFileOrStore } from '../polymarket/sqliteStore.js';
 import { dataPath } from '../polymarket/dataDir.js';
 import { loadRegimeSignal } from '../polymarket/regimeSignal.js';
+import { CONF_GATE } from '../polymarket/confidenceScale.js';
 
 const GOV_FILE = dataPath('governor_state.json');
 
@@ -23,12 +24,12 @@ const GOV_FILE = dataPath('governor_state.json');
 export const REGIME_PROFILES = {
   // Mid-band trend: recent paper sim winner sits ~0.42–0.68, not rich favorites
   'trend-ride': {
-    minPrice: 0.42, maxPrice: 0.70,
+    minPrice: 0.25, maxPrice: 0.38,
     tpPctLow: 22, tpPctHigh: 55, slPct: 18,
     adaptiveSl: false, minAdaptiveSlPct: 16,
     partialTpFrac: 0.85, partialSellPct: 0.2,
     trailActivateFrac: 0.85, trailDistanceCap: 9,
-    kellyFraction: 0.18, minConfidence: 0.42,
+    kellyFraction: 0.18, minConfidence: CONF_GATE.LOOSE,
     certaintyMaxPct: 0.28,
     holdToSettleUnderdogs: true,
     holdToSettleFavorites: false,
@@ -42,12 +43,12 @@ export const REGIME_PROFILES = {
   },
   // Chop: tighter entries, still avoid favorite SL grind
   'scalp': {
-    minPrice: 0.40, maxPrice: 0.65,
+    minPrice: 0.25, maxPrice: 0.35,
     tpPctLow: 16, tpPctHigh: 32, slPct: 16,
     adaptiveSl: false, minAdaptiveSlPct: 14,
     partialTpFrac: 0.78, partialSellPct: 0.25,
     trailActivateFrac: 0.8, trailDistanceCap: 8,
-    kellyFraction: 0.12, minConfidence: 0.45,
+    kellyFraction: 0.12, minConfidence: CONF_GATE.STANDARD,
     certaintyMaxPct: 0.2,
     holdToSettleUnderdogs: true,
     holdToSettleFavorites: false,
@@ -62,7 +63,7 @@ export const REGIME_PROFILES = {
   'arb-only': {
     clobArbEnabled: true,
     arbOnlyUntilEdge: true,
-    minConfidence: 0.5,
+    minConfidence: CONF_GATE.STRICT,
     kellyFraction: 0.1,
     certaintyMaxPct: 0.18,
     adaptiveSl: false,
@@ -102,6 +103,7 @@ export const GOVERNOR_FORBIDDEN_KEYS = Object.freeze(new Set([
   'minArbGap',
   'arbMinMarginPct',
   'maxArbPackages',
+  'maxArbPerSlug',
   'arbBankrollFrac',
   'arbMaxUsd',
 ]));
@@ -112,6 +114,20 @@ const DEFAULTS = {
   revertMinTrades: 6,       // trades before judging a switch
   revertPnlThreshold: 0,    // pnl since switch below this → revert
 };
+
+/** Arb sizing tightened when the drawdown breaker trips (guardrail tier, not profile overlay). */
+export const BREAKER_ARB_GUARD = Object.freeze({
+  arbMinMarginPct: 0.009,
+  maxArbPackages: 3,
+  arbBankrollFrac: 0.07,
+  arbMaxUsd: 35,
+});
+
+const ARB_PATCH_KEYS = ['arbMinMarginPct', 'maxArbPackages', 'arbBankrollFrac', 'arbMaxUsd'];
+/** Recover only after DD falls to 30% of the trip threshold (hysteresis). */
+const RECOVERY_DD_FRAC = 0.30;
+/** Minimum time in breaker before arb guard lifts (ms). */
+const RECOVERY_MIN_MS = 45 * 60 * 1000;
 
 let _state = {
   enabled: true,
@@ -126,9 +142,12 @@ let _state = {
   peakEquityByMode: { paper: null, live: null },
   breakerActive: false,
   breakerActiveByMode: { paper: false, live: false },
+  breakerSinceByMode: { paper: 0, live: 0 },
+  savedArbPatchByMode: { paper: null, live: null },
   lastResult: null,
   switchBaseline: null, // { profile, at, tradeCount, netPnl }
   cooling: {},          // profile -> untilTs
+  manualLock: null,     // operator-pinned regime (skips auto switch)
   history: [],
 };
 
@@ -146,6 +165,8 @@ function saveJson(file, data) {
 }
 
 export function getGovernorStatus() {
+  const mode = _state.lastMode || 'paper';
+  const ddReason = _state.lastResult?.reasons?.find((r) => String(r).includes('drawdown'));
   return {
     enabled: _state.enabled,
     running: _state.running,
@@ -155,11 +176,60 @@ export function getGovernorStatus() {
     lastMode: _state.lastMode,
     lastSwitchAt: _state.lastSwitchAt,
     breakerActive: _state.breakerActive,
+    drawdownBreakerActive: Boolean(_state.breakerActiveByMode?.[mode]),
+    reason: ddReason || _state.lastResult?.reasons?.[0] || null,
+    peakEquity: _state.peakEquityByMode?.[mode] ?? _state.peakEquity,
     lastResult: _state.lastResult,
     history: _state.history.slice(0, 12),
     profiles: REGIME_LIST,
+    manualLock: _state.manualLock || null,
     llm: llmStatus(),
   };
+}
+
+/** Operator override — holds regime until cleared with setGovernorAuto(). */
+export function setGovernorRegime(name, { saveConfig, config, log, manual = true } = {}) {
+  if (!REGIME_LIST.includes(name)) {
+    return { ok: false, error: `invalid regime: ${name}` };
+  }
+  const changed = applyProfile(name, { saveConfig, config });
+  _state.prevProfile = _state.profile;
+  _state.profile = name;
+  _state.regime = name;
+  _state.lastSwitchAt = Date.now();
+  if (manual) _state.manualLock = name;
+  const res = record({
+    action: 'manual',
+    regime: name,
+    reasons: ['operator manual switch'],
+    changed,
+    mode: config?.mode || 'paper',
+    source: 'operator',
+  });
+  if (log) log(`🎛️ GOVERNOR manual → ${name}`, 'system', res);
+  return { ok: true, changed, regime: name, manualLock: _state.manualLock };
+}
+
+export function setGovernorAuto() {
+  _state.manualLock = null;
+  persistState();
+  return { ok: true, manualLock: null };
+}
+
+export function clearGovernorBreaker(mode, { saveConfig, log } = {}) {
+  const m = mode || _state.lastMode || 'paper';
+  _state.breakerActiveByMode = {
+    paper: false,
+    live: false,
+    ...(_state.breakerActiveByMode || {}),
+    [m]: false,
+  };
+  _state.breakerActive = false;
+  if (typeof saveConfig === 'function') {
+    restoreBreakerArbGuard({ saveConfig, mode: m, log });
+  }
+  persistState();
+  return { ok: true, mode: m };
 }
 
 export function setGovernorEnabled(on) {
@@ -262,11 +332,20 @@ function applyProfile(name, { saveConfig, config }) {
   const patch = { ...overlay };
   // The arb engine's thresholds are not the governor's to set, in any mode.
   for (const k of GOVERNOR_FORBIDDEN_KEYS) delete patch[k];
-  // Live safety: never let a profile loosen the edge-gate lock.
   if ((config.mode || 'paper') === 'live') {
+    // Live safety: never let a profile loosen the edge-gate lock.
     for (const k of LIVE_PROTECTED) {
       if (k in patch && patch[k] === false) delete patch[k];
     }
+  } else if (patch.arbOnlyUntilEdge === true) {
+    // Paper deadlock: the edge gate unlocks directional after N directional
+    // closes, and paper is where that sample is supposed to accumulate. A
+    // regime switch that sets the lock means directional never trades, so the
+    // sample never grows and the lock never lifts. Measured 2026-08-30: an
+    // ML high-vol reading pinned arb-only for 5h and booked 2 arb trades and
+    // zero directional against a 40-close requirement. Only the operator may
+    // set this in paper.
+    delete patch.arbOnlyUntilEdge;
   }
   const differs = Object.entries(patch).some(([k, v]) => config[k] !== v);
   if (!differs) return false;
@@ -286,15 +365,54 @@ function persistState() {
     peakEquity: _state.peakEquity,
     peakEquityByMode: _state.peakEquityByMode,
     breakerActiveByMode: _state.breakerActiveByMode,
+    breakerSinceByMode: _state.breakerSinceByMode,
+    savedArbPatchByMode: _state.savedArbPatchByMode,
+    manualLock: _state.manualLock,
     lastResult: _state.lastResult,
     history: _state.history.slice(0, 20),
   });
+}
+
+function snapshotArbPatch(config) {
+  const snap = {};
+  for (const k of ARB_PATCH_KEYS) {
+    if (config[k] != null) snap[k] = config[k];
+  }
+  return snap;
+}
+
+function applyBreakerArbGuard({ saveConfig, config, mode, now, log }) {
+  if (!_state.savedArbPatchByMode?.[mode]) {
+    _state.savedArbPatchByMode = {
+      ...(_state.savedArbPatchByMode || {}),
+      [mode]: snapshotArbPatch(config),
+    };
+  }
+  if (!_state.breakerSinceByMode?.[mode]) {
+    _state.breakerSinceByMode = { ...(_state.breakerSinceByMode || {}), [mode]: now };
+  }
+  if (typeof saveConfig === 'function') {
+    saveConfig(BREAKER_ARB_GUARD, { tier: 'guardrail', source: 'drawdown-arb-guard' });
+    if (log) log('🛡️ DD breaker arb guard — tighter margin & package caps', 'system', BREAKER_ARB_GUARD);
+  }
+}
+
+function restoreBreakerArbGuard({ saveConfig, mode, log }) {
+  const saved = _state.savedArbPatchByMode?.[mode];
+  if (saved && typeof saveConfig === 'function') {
+    saveConfig(saved, { tier: 'guardrail', source: 'drawdown-arb-restore' });
+    if (log) log('✅ DD breaker cleared — restored arb sizing', 'system', saved);
+  }
+  _state.savedArbPatchByMode = { ...(_state.savedArbPatchByMode || {}), [mode]: null };
+  _state.breakerSinceByMode = { ...(_state.breakerSinceByMode || {}), [mode]: 0 };
 }
 
 /** Clear peak/breaker memory for a mode so a data reset starts from a clean slate. */
 export function resetGovernorPeak(mode) {
   _state.peakEquityByMode = { ...(_state.peakEquityByMode || {}), [mode]: null };
   _state.breakerActiveByMode = { ...(_state.breakerActiveByMode || {}), [mode]: false };
+  _state.breakerSinceByMode = { ...(_state.breakerSinceByMode || {}), [mode]: 0 };
+  _state.savedArbPatchByMode = { ...(_state.savedArbPatchByMode || {}), [mode]: null };
   if (mode === _state.lastMode) {
     _state.peakEquity = null;
     _state.breakerActive = false;
@@ -389,6 +507,29 @@ export async function runGovernor({
     const breakerPct = Number(config.governorDrawdownPct ?? DEFAULTS.drawdownBreakerPct);
     const modePeak = Number(_state.peakEquityByMode?.[mode] ?? 0);
     const dd = modePeak > 0 ? (modePeak - equity) / modePeak : 0;
+    const recoveryPct = breakerPct * RECOVERY_DD_FRAC;
+    const breakerSince = Number(_state.breakerSinceByMode?.[mode] || 0);
+
+    if (_state.breakerActiveByMode?.[mode] && dd < recoveryPct && (now - breakerSince) >= RECOVERY_MIN_MS) {
+      _state.breakerActiveByMode = {
+        paper: false,
+        live: false,
+        ...(_state.breakerActiveByMode || {}),
+        [mode]: false,
+      };
+      _state.breakerActive = false;
+      restoreBreakerArbGuard({ saveConfig, mode, log });
+      const res = record({
+        action: 'breaker-clear',
+        regime: _state.profile || 'trend-ride',
+        reasons: [`drawdown recovered to ${round(dd * 100, 1)}% < ${round(recoveryPct * 100, 1)}% after ${Math.round((now - breakerSince) / 60000)}m`],
+        changed: true,
+        mode,
+        source: 'guardrail',
+      });
+      if (log) log(`✅ GOVERNOR drawdown breaker cleared (${round(dd * 100, 1)}% off peak)`, 'system', res);
+    }
+
     if (dd >= breakerPct) {
       const changed = applyProfile('arb-only', { saveConfig, config });
       if (changed || _state.profile !== 'arb-only') {
@@ -397,6 +538,7 @@ export async function runGovernor({
         _state.lastSwitchAt = now;
         _state.switchBaseline = { profile: 'arb-only', at: now, tradeCount: closed.length, netPnl: perf.netPnl };
       }
+      const wasActive = Boolean(_state.breakerActiveByMode?.[mode]);
       _state.breakerActiveByMode = {
         paper: false,
         live: false,
@@ -404,18 +546,28 @@ export async function runGovernor({
         [mode]: true,
       };
       _state.breakerActive = true;
+      if (!wasActive) applyBreakerArbGuard({ saveConfig, config, mode, now, log });
       const res = record({ action: 'breaker', regime: 'arb-only', reasons: [`drawdown ${round(dd * 100, 1)}% ≥ ${round(breakerPct * 100, 0)}% off peak`], changed, mode, source: 'guardrail' });
-      if (changed && log) log(`⛔ GOVERNOR drawdown breaker → arb-only (${round(dd * 100, 1)}% off peak)`, 'system', res);
+      if ((changed || !wasActive) && log) log(`⛔ GOVERNOR drawdown breaker → arb-only (${round(dd * 100, 1)}% off peak)`, 'system', res);
       return res;
     }
-    if (_state.breakerActiveByMode?.[mode] && dd < breakerPct * 0.5) {
-      _state.breakerActiveByMode = {
-        paper: false,
-        live: false,
-        ...(_state.breakerActiveByMode || {}),
-        [mode]: false,
-      };
-      _state.breakerActive = false;
+
+    // --- Manual operator lock (skips auto regime selection) ---
+    if (_state.manualLock && REGIME_LIST.includes(_state.manualLock)) {
+      if (_state.profile !== _state.manualLock) {
+        applyProfile(_state.manualLock, { saveConfig, config });
+        _state.profile = _state.manualLock;
+        _state.regime = _state.manualLock;
+      }
+      return record({
+        action: 'hold',
+        regime: _state.manualLock,
+        reasons: ['manual regime lock'],
+        changed: false,
+        mode,
+        source: 'operator',
+        detected: detected.regime,
+      });
     }
 
     // --- Auto-revert: did the last switch bleed? ---
@@ -507,7 +659,16 @@ export async function runGovernor({
       paper: Boolean(disk?.breakerActiveByMode?.paper),
       live: Boolean(disk?.breakerActiveByMode?.live),
     };
+    _state.breakerSinceByMode = {
+      paper: Number(disk?.breakerSinceByMode?.paper || 0),
+      live: Number(disk?.breakerSinceByMode?.live || 0),
+    };
+    _state.savedArbPatchByMode = {
+      paper: disk?.savedArbPatchByMode?.paper ?? null,
+      live: disk?.savedArbPatchByMode?.live ?? null,
+    };
     _state.lastResult = disk.lastResult ?? null;
     _state.history = Array.isArray(disk.history) ? disk.history : [];
+    _state.manualLock = disk.manualLock ?? null;
   }
 })();

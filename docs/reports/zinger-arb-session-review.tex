@@ -1,0 +1,107 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+\definecolor{zingerblue}{HTML}{1E3A5F}
+\definecolor{zingeraccent}{HTML}{2563EB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=zingeraccent,
+  pdftitle={Zinger Better Arb Capture},
+  pdfauthor={Zinger Operator}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{zingerblue}{Zinger Better Arb Capture}}
+\fancyhead[R]{\small\textcolor{gray}{3 September 2026, 13:49 UTC+1}}
+\fancyfoot[C]{\thepage}
+
+\titleformat{\section}{\large\bfseries\color{zingerblue}}{}{0em}{}[\titlerule]
+
+\title{\textbf{Zinger Better Arb Capture}\\[0.3em]
+\large Multi-fill + Upstream FOK Port}
+\author{Session \texttt{session-mtliuacy} · \texttt{zinger.kierkegaard.space}}
+\date{3 September 2026, 13:49 UTC+1}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+\textbf{Shipped:} opportunity-capture fixes so a \$1k paper book can take \textbf{multiple \~\$100 packages per window}, always on real CLOB ladders, with Leg2 sized from Leg1 fills. Selectively ported NewGenesis04 \texttt{zinger-core} FOK market buys, receipts, and unwind hardening --- without replacing local depth-walk sizing.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Why edge was left on the table}
+\begin{enumerate}[noitemsep]
+  \item \texttt{maxArbPerSlug: 3} but only \textbf{one} \texttt{detectAndExecute} call per market per scan.
+  \item Depth loaded only when \texttt{useOrderBookBias}; otherwise synthetic infinite touch ladders.
+  \item Equal planned shares on both legs --- not sized from actual Leg1 fill (directional residual risk).
+  \item Scan-only reaction; WS book moves did not prioritize fleeting gaps.
+\end{enumerate}
+
+\section{What changed}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lp{9cm}@{}}
+\toprule
+\textbf{Area} & \textbf{Change} \\
+\midrule
+Depth & Always fetch ladders when arb enabled; refuse synthetic touch \\
+Multi-fill & \texttt{detectAndExecuteArbPackages} loops up to \texttt{maxArbPerSlug}, consuming residual asks \\
+Sizing & \texttt{targetBudgetUsd} / \texttt{minArbPackageUsd=15}; size off initial deposit \\
+Parity & Leg2 shares = Leg1 matched shares \\
+Live FOK & \texttt{placeMarketBuy} + \texttt{maxPrice}; \texttt{clobReceipts.jsonl} \\
+Unwind & Failed live sell leaves position open (retry / settle) \\
+WS hunt & Hot token marks prioritize markets with fresh touch gaps \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Upstream (zinger-core) vs local}
+NewGenesis04 \texttt{upstream/main} (\texttt{ad77140}, \texttt{640b1a0}, \texttt{e4c6c77}) provided FOK / receipts / unwind. Local Zinger kept \texttt{arbDepth} ladder walk and multi-slug --- upstream still touch-only and 1 package/slug.
+
+\section{Live watch}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+Session & \texttt{session-mtliuacy} \\
+Mode & paper · forceArbOnly · arbMaxUsd \$100 · maxPerSlug 3 \\
+Target & 200 closed legs \\
+Observer & \texttt{logs/session-arb-observe.log} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Tests}
+\texttt{arbDepth}, \texttt{arbEngine}, \texttt{clobReceipts}, \texttt{tradeFok} --- 26 passing.
+
+\section{Download}
+\begin{verbatim}
+scp david@109.205.181.119:\
+  /home/david/Zinger/docs/reports/zinger-arb-session-review.pdf \
+  ~/Downloads/
+\end{verbatim}
+
+\vfill
+\begin{center}
+\small\textcolor{gray}{Paper trading only. Package net P\&L is authoritative.}
+\end{center}
+
+\end{document}
