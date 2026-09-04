@@ -9,6 +9,16 @@ const SIGNAL_MAX_AGE_MS = 45_000;
 const MARKET_PRICE_MAX_AGE_MS = 45_000;
 const POLY_WINDOW_SECONDS = 300;
 
+function windowSecondsFromSlug(slug) {
+  const s = String(slug || '');
+  if (s.includes('-4h-')) return 4 * 3600;
+  if (s.includes('-15m-')) return 900;
+  if (s.includes('-1h-')) return 3600;
+  if (s.includes('-30m-')) return 1800;
+  if (s.includes('-5m-')) return 300;
+  return POLY_WINDOW_SECONDS;
+}
+
 function ageMs(ts) {
   if (ts == null) return null;
   const n = Number(ts);
@@ -29,7 +39,7 @@ function check(id, ok, detail, { level = 'warn', blockBuys = false } = {}) {
 function slugWindowEndMs(slug) {
   const ts = Number(String(slug || '').split('-').pop());
   if (!Number.isFinite(ts) || ts < 1e9) return null;
-  return (ts + POLY_WINDOW_SECONDS) * 1000;
+  return (ts + windowSecondsFromSlug(slug)) * 1000;
 }
 
 /**
@@ -113,15 +123,23 @@ export function buildDataAssurance(opts = {}) {
 
   const withBeat = markets.filter((m) => Number(m?.priceToBeat) > 0
     || Number(opts.priceToBeat?.[String(m.symbol || '').toLowerCase()]?.openPrice) > 0);
-  // Arb packages only need complementary CLOB asks — Chainlink to-beat is a
-  // directional strike input. Do not block arb-only buys on missing oracle open.
+  // Future / unopened windows often return openPrice:0 until the clock starts.
+  // Requiring 100% coverage blocked ALL buys whenever any 15m/4h window lacked
+  // a strike (common with multi-asset multi-TF). Block only when *none* of the
+  // current windows have a strike — directional needs at least one. Arb-only
+  // never blocks on this input.
+  const beatCoverageOk = markets.length === 0 || withBeat.length > 0;
+  const beatComplete = markets.length === 0 || withBeat.length === markets.length;
   checks.push(check(
     'price_to_beat',
-    markets.length === 0 || withBeat.length === markets.length,
+    beatComplete,
     markets.length
       ? `${withBeat.length}/${markets.length} windows have Chainlink open (to-beat)`
       : 'n/a',
-    { level: arbOnly ? 'warn' : 'error', blockBuys: !arbOnly },
+    {
+      level: arbOnly || beatCoverageOk ? 'warn' : 'error',
+      blockBuys: !arbOnly && !beatCoverageOk,
+    },
   ));
 
   const eventStarts = markets.filter((m) => m?.eventStartTime || (m?.endTime && m.endTime > 1e9));

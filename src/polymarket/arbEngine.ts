@@ -56,12 +56,22 @@ function resolveShareBudget(cfg, mode, readiness) {
 
   const effectiveArbMaxUsd = arbIsGuaranteed ? baseArbCap * 2 : baseArbCap;
   const effectiveFrac = arbIsGuaranteed ? Math.min(0.30, baseFrac * 1.5) : baseFrac;
+  const shareBudget = Math.max(
+    Number(cfg.minPositionSize ?? 0.5) * 2,
+    Math.min(arbBank * effectiveFrac, effectiveArbMaxUsd),
+  );
+  // Preferred per-package notional. Small slices (e.g. $10–$20) walk the ask
+  // ladder across maxArbPerSlug fills so we capture more of a thick gap instead
+  // of one fat take that vacuums the best levels and leaves nothing.
+  const rawSlice = Number(cfg.arbSliceUsd);
+  const floorPkg = Number(cfg.minArbPackageUsd ?? cfg.arbPackageUsdFloor ?? 5);
+  const sliceUsd = Number.isFinite(rawSlice) && rawSlice > 0
+    ? Math.min(effectiveArbMaxUsd, Math.max(floorPkg, rawSlice))
+    : effectiveArbMaxUsd;
   return {
-    shareBudget: Math.max(
-      Number(cfg.minPositionSize ?? 0.5) * 2,
-      Math.min(arbBank * effectiveFrac, effectiveArbMaxUsd),
-    ),
+    shareBudget,
     packageCap: effectiveArbMaxUsd,
+    sliceUsd,
   };
 }
 
@@ -162,11 +172,11 @@ export async function detectAndExecuteReverseBidPackage({
     touchBidPremium: touchBidUp && touchBidDown ? touchBidUp + touchBidDown - 1 : undefined,
   });
 
-  const { shareBudget, packageCap } = resolveShareBudget(cfg, mode, null);
+  const { shareBudget, packageCap, sliceUsd } = resolveShareBudget(cfg, mode, null);
   const opp = evaluateReverseBidOpportunity({
     depth,
     prices,
-    maxBudgetUsd: Math.min(shareBudget, packageCap),
+    maxBudgetUsd: Math.min(shareBudget, packageCap, sliceUsd),
     feeParams,
     marginPct: gates.marginPct,
     minBidPremium: gates.minGap,
@@ -344,13 +354,13 @@ export async function detectAndExecuteArbPackage({
   const minGap = gates.minGap;
   const minPackageUsd = gates.minPackageUsd;
 
-  const { shareBudget, packageCap } = resolveShareBudget(cfg, mode, readiness);
+  const { shareBudget, packageCap, sliceUsd } = resolveShareBudget(cfg, mode, readiness);
 
   const opp = evaluateArbOpportunity({
     depth,
     prices,
     maxBudgetUsd: shareBudget,
-    targetBudgetUsd: packageCap,
+    targetBudgetUsd: sliceUsd,
     feeParams,
     marginPct,
     minGap,

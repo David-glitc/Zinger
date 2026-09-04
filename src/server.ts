@@ -977,10 +977,15 @@ export async function createApp() {
       }
       const { spawn } = await import('child_process');
       const result = await new Promise((resolve) => {
+        let settled = false;
+        const done = (value) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
         const py = process.env.ZINGER_ML_PYTHON || 'python3';
         const proc = spawn(py, [scriptPath, asset], {
           stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: 55000,
           cwd: ROOT,
           env: { ...process.env, PYTHONUNBUFFERED: '1' },
         });
@@ -989,19 +994,28 @@ export async function createApp() {
         proc.stderr.on('data', d => err += d);
         const timer = setTimeout(() => {
           try { proc.kill('SIGKILL'); } catch {}
-          resolve({ error: 'timeout', rl_direction: 0, rl_label: 'NEUTRAL' });
+          done({ error: 'timeout', rl_direction: 0, rl_label: 'NEUTRAL' });
         }, 55000);
         proc.on('close', (code) => {
           clearTimeout(timer);
-          if (code !== 0 || !out.trim()) return resolve({ error: (err || 'no output').slice(0, 200), rl_direction: 0, rl_label: 'NEUTRAL' });
-          try { resolve(JSON.parse(out.trim().split('\n').filter(Boolean).pop())); }
-          catch { resolve({ error: 'parse error', rl_direction: 0, rl_label: 'NEUTRAL' }); }
+          if (code !== 0 || !out.trim()) {
+            return done({ error: (err || 'no output').slice(0, 200), rl_direction: 0, rl_label: 'NEUTRAL' });
+          }
+          try { done(JSON.parse(out.trim().split('\n').filter(Boolean).pop())); }
+          catch { done({ error: 'parse error', rl_direction: 0, rl_label: 'NEUTRAL' }); }
         });
-        proc.on('error', e => resolve({ error: e.message, rl_direction: 0, rl_label: 'NEUTRAL' }));
+        proc.on('error', e => {
+          clearTimeout(timer);
+          done({ error: e.message, rl_direction: 0, rl_label: 'NEUTRAL' });
+        });
       });
-      res.json(result);
+      if (!res.headersSent) res.json(result);
     } catch (err) {
-      res.status(500).json({ error: err.message, rl_direction: 0, rl_label: 'NEUTRAL' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: err.message, rl_direction: 0, rl_label: 'NEUTRAL' });
+      } else {
+        console.error('[rl-signal]', err.message);
+      }
     }
   });
 

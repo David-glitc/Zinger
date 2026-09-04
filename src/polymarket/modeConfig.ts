@@ -29,7 +29,7 @@ export const STRATEGY_KEYS = [
   'bankrollReservePct',
   'useKellySizing', 'kellyFraction',
   'certaintySizing', 'certaintyMaxPct', 'certaintyMaxUsd',
-  'arbBankrollFrac', 'arbMaxUsd',
+  'arbBankrollFrac', 'arbMaxUsd', 'arbSliceUsd',
   'useAggressiveScaling', 'aggScaleMultiplier',
   'minRemainingSec', 'maxEntryRemainingSec', 'entryWindowFrac',
   'assets', 'use15m', 'enabledDurations',
@@ -353,8 +353,9 @@ export function arbOnlyPaperStrategy() {
     // $1k paper: ~$50/leg ⇒ ~$100 package; frac leaves room for 3 pkgs/slug
     arbBankrollFrac: 0.30,
     arbMaxUsd: 100,
-    maxArbPackages: 12,
-    maxArbPerSlug: 3,
+    arbSliceUsd: 15,
+    maxArbPackages: 16,
+    maxArbPerSlug: 6,
     minArbPackageUsd: 8,
     minPositionSize: 5,
     maxOpenPositions: 4,
@@ -566,7 +567,11 @@ export function validateConfig(cfg = {}) {
     next.minArbGap = Math.max(0.003, next.minArbGap);
   }
   if (typeof next.maxArbPerSlug === 'number') {
-    next.maxArbPerSlug = Math.max(1, Math.min(5, Math.round(next.maxArbPerSlug)));
+    // Paper multi-slice walks need >5 packages/slug to drain a thick gap in $10–$20 bites.
+    next.maxArbPerSlug = Math.max(1, Math.min(12, Math.round(next.maxArbPerSlug)));
+  }
+  if (typeof next.arbSliceUsd === 'number') {
+    next.arbSliceUsd = Math.max(3, Math.min(Number(next.arbMaxUsd || 100), next.arbSliceUsd));
   }
   return next;
 }

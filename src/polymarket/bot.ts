@@ -1800,7 +1800,17 @@ export function getState(opts = {}) {
     arbSurfaces: lean
       ? Object.fromEntries(
         Object.entries(botState._arbSurfaces || {})
-          .slice(0, 8)
+          .map(([k, v]) => [k, v])
+          .sort((a, b) => {
+            const score = (v) => {
+              if (v.stage1Ask?.actionable || v.stage2Bid?.actionable) return 100;
+              const g = Math.max(Number(v.touchAskGap) || -1, Number(v.touchBidPremium) || -1);
+              const twoSided = Number.isFinite(v.up?.ask) && Number.isFinite(v.down?.ask) ? 1 : 0;
+              return g + twoSided * 0.01;
+            };
+            return score(b[1]) - score(a[1]);
+          })
+          .slice(0, 12)
           .map(([k, v]) => [k, {
             bestStage: v.bestStage,
             askGap: v.touchAskGap,

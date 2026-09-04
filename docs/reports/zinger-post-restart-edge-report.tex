@@ -1,0 +1,164 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{longtable}
+
+\definecolor{zingerblue}{HTML}{1E3A5F}
+\definecolor{zingeraccent}{HTML}{2563EB}
+\definecolor{zingergood}{HTML}{15803D}
+\definecolor{zingerwarn}{HTML}{B45309}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=zingeraccent,
+  pdftitle={Zinger Post-Restart Systems and Edge Report},
+  pdfauthor={Zinger Operator}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{zingerblue}{Zinger · Post-restart report}}
+\fancyhead[R]{\small\textcolor{gray}{4 September 2026}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\titleformat{\section}{\large\bfseries\color{zingerblue}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\bfseries\color{zingerblue}}{}{0em}{}
+
+\title{\textbf{Zinger Systems \& Edge Report}\\[0.35em]
+\large From last documented restart (scan hang + 4h orphan fix)}
+\author{\texttt{zinger.kierkegaard.space} · Contabo VPS}
+\date{4 September 2026, 09:05--09:10 UTC}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+This report starts at the restart documented in \texttt{DEVELOPMENT.md}
+(\textbf{2026-09-04 --- +20 trade wait / systems+edge report}): hung scan loop and
+false \texttt{orphan\_paper} on 4h markets. It records why the bot was restarted,
+what was fixed, the prior session that triggered the restart, and the post-restart
+desk configuration (\texttt{arbSliceUsd=\$15}, multi-slice, hybrid scalp+arb).
+\end{abstract}
+
+\section{Restart boundary (documented)}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lp{10cm}@{}}
+\toprule
+\textbf{Field} & \textbf{Value} \\
+\midrule
+DEVELOPMENT entry & \texttt{2026-09-04 --- +20 trade wait / systems+edge report} \\
+Trigger session & \texttt{session-mtmor579} (closed at restart) \\
+Post-restart session & \texttt{session-mtmq08un} (and follow-on re-arms if scan hung again) \\
+Host & \texttt{vmi3335992} · bot \texttt{:3000} · public \texttt{https://zinger.kierkegaard.space} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Why we restarted}
+\begin{enumerate}[leftmargin=*,itemsep=0.35em]
+  \item \textbf{Stale scan / stuck scan lock} --- last scan age exceeded watchdog threshold ($\sim$100s); buys blocked via \texttt{scan\_fresh}.
+  \item \textbf{False orphan on 4h} --- \texttt{dataAssurance} treated every slug as a 300s (5m) window. A live \texttt{btc-updown-4h-*} directional fill was flagged ``past window end'' minutes after open and blocked \emph{all} buys via \texttt{orphan\_paper}.
+\end{enumerate}
+
+\subsection{Fixes shipped at restart}
+\begin{itemize}[leftmargin=*,itemsep=0.25em]
+  \item Parse window length from slug (\texttt{5m}=300s, \texttt{15m}=900s, \texttt{4h}=14400s) in \texttt{dataAssurance.ts}.
+  \item Process restart on \texttt{:3000}; hybrid re-arm via \texttt{scripts/arm-hybrid-fills.mjs}.
+  \item Keep slice knobs: \texttt{arbSliceUsd=\$15}, \texttt{maxArbPerSlug=6}, \texttt{maxArbPackages=16}.
+\end{itemize}
+
+\section{Prior session closed at restart (\texttt{session-mtmor579})}
+This is the last full trading sample before the restart boundary.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Session closes & 42 \\
+Session PnL & +\$42.05 \\
+Equity (end) & $\sim$\$1164.61 \\
+Wait experiment & +20 closes (6 $\rightarrow$ 30) in $\sim$6 minutes \\
+Wait-window legs & $\sim$36 arb legs · PnL +\$17.05 · expectancy $\sim$\$0.47/leg \\
+Wait-window mix & Mostly \texttt{arb\_merge}; some \texttt{arb\_reverse\_bid} \\
+Lead assets (window) & ETH (+\$10.75 / 16 legs), SOL (+\$4.15 / 14 legs) \\
+Directional in wait slice & None (arb-only closes in that sample) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textit{Note:} Leg win rate $\sim$50\% is expected for complementary packages (UP/DOWN legs book opposing PnL). Package bank remained strong: \textbf{48/48 packages settled (100\% WR), lifetime package net +\$88.33}.
+
+\section{Post-restart desk configuration}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Knob} & \textbf{Value} \\
+\midrule
+Mode & paper · hybrid (not forceArbOnly) \\
+Regime & scalp (governor pinned) + CLOB arb \\
+Assets & BTC, ETH, SOL, XRP, DOGE \\
+Durations & 5m, 15m, 4h \\
+\texttt{arbSliceUsd} & \$15 (preferred package bite) \\
+\texttt{arbMaxUsd} & \$100 (hard package ceiling) \\
+\texttt{maxArbPerSlug} & 6 (multi-fill residual walk) \\
+\texttt{maxArbPackages} & 16 \\
+\texttt{arbBankrollFrac} & 0.35 \\
+Dynamic gates / S2 reverse & on / on \\
+Exit & paper CTF merge (\texttt{arbExitMode=merge}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Systems status at report time}
+\begin{itemize}[leftmargin=*,itemsep=0.3em]
+  \item Bot process listening on \texttt{0.0.0.0:3000}; public site returns HTTP 200.
+  \item Equity carried $\sim$\$1164 after restart (paper ledger retained).
+  \item Lifetime arb package metrics retained across restart (48 settled, +\$88.33).
+  \item Open interest at snapshot: 1 directional BTC 4h (down @ 0.25) --- no longer false-orphaned after TF-aware window fix.
+  \item \textbf{Ops note:} scan lock hung a second time after the documented restart; bot was restarted again while producing this PDF so the desk is not left buy-blocked on \texttt{scan\_fresh}.
+\end{itemize}
+
+\section{Edge read-through}
+\begin{enumerate}[leftmargin=*,itemsep=0.35em]
+  \item \textbf{Arb is the steady engine} in the pre-restart wait window --- multi-asset (ETH/SOL/XRP) with \$15-style bites and merge exits.
+  \item \textbf{Package PnL, not leg PnL}, is the correct scoreboard for locked arb.
+  \item \textbf{Slice sizing} addresses depth: one fat \$50--\$100 take often exhausts the best asks; \$15 $\times$ up to 6/slug walks residual gap.
+  \item \textbf{Directional} remains BTC/ETH-signal limited; scalp band can be overwritten by governor to a tight 0.25--0.35 band.
+  \item \textbf{Reliability debt:} scan-loop hangs still require process restart --- worth a dedicated watchdog kill/recover path next.
+\end{enumerate}
+
+\section{Artifacts}
+\begin{verbatim}
+PDF:  /home/david/Zinger/docs/reports/zinger-post-restart-edge-report.pdf
+TeX:  /home/david/Zinger/docs/reports/zinger-post-restart-edge-report.tex
+JSON: /tmp/zinger-post-restart-report.json
+Log:  /home/david/Zinger/DEVELOPMENT.md  (restart entry)
+UI:   https://zinger.kierkegaard.space
+\end{verbatim}
+
+\noindent
+Download:
+\begin{verbatim}
+scp david@109.205.181.119:\
+  /home/david/Zinger/docs/reports/zinger-post-restart-edge-report.pdf \
+  ~/Downloads/
+\end{verbatim}
+
+\end{document}

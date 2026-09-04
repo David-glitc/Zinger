@@ -363,3 +363,38 @@ edge filter the balance rule never engages. Root cause not yet established.
 - Harmonized live arb leg risk check with upstream: drop hidden `capUsd*1.6` / `$4.5` floor for `isArbLeg` (directional keep); arb legs refuse only clear overshoot vs `arbMaxUsd`.
 - UI: `ArbDesk` consumes live `arbSurfaces` / `arbMetrics` / `packages` on overview + observability; Tune adds asset/TF chips + dynamic gates / S2 reverse / lock floors.
 - Package `1.2.0`. Arm script keeps BTC/ETH/SOL/XRP/DOGE × 5m/15m/4h, dynamic gates, paper merge exit, reverse bid.
+
+## 2026-09-04 01:15 UTC — hybrid fills (more trades)
+
+- Arb books showed 0 positive S1/S2 gaps (ask sums ≥1.01); forceArbOnly left session idle.
+- Armed hybrid: scalp regime + CLOB arb still on; looser crumb arb floors.
+- dataAssurance: price_to_beat no longer blocks all buys on partial Chainlink coverage (block only when zero strikes).
+
+## 2026-09-04 — bot crash / downtime
+
+- Process on :3000 was dead; observer only (`fetch failed` since ~07:28Z).
+- Cause: `/api/poly/rl-signal` double-sent response → `ERR_HTTP_HEADERS_SENT` (timeout vs close race / catch after send).
+- Fix: single-settle promise + `headersSent` guards. Bot restarted + hybrid re-armed.
+
+## 2026-09-04 — arb slice sizing
+
+- Explained: locked arb PnL scales with shares×gap; fat single takes often depth-limited so $50≠5×$10 upside.
+- Added `arbSliceUsd` (live default $15) + raised `maxArbPerSlug` ceiling to 12; multi-fill walks residual asks.
+- Tune UI exposes slice / per-slug. Rebuilt frontend.
+
+## 2026-09-04 — +20 trade wait / systems+edge report
+
+- Waited session-mtmor579 6→30 closes (~6m); window edge ~+$12 session / ~+$17 on 36 arb legs (ETH/SOL led).
+- Found hung scan + false orphan_paper on 4h (300s window assumption). Fixed slug window seconds by TF; restarted & re-armed.
+- Canvas: zinger-systems-edge-report.canvas.tsx
+
+## 2026-09-04 — post-restart PDF report
+
+- PDF from last documented restart (hung scan + 4h orphan fix): `docs/reports/zinger-post-restart-edge-report.pdf`
+- Covers prior session-mtmor579 (+$42 / 42 closes) and post-restart desk (slice $15, hybrid). Scan hung again during PDF prep → restarted; canBuy restored.
+
+## 2026-09-04 — PDF since $1000 paper reset (not process restart)
+
+- Clarified: report scope = last `paper_reset_clean_slate` at 2026-09-03T10:43:57Z ($1000), all sessions since.
+- Stats: equity ~$1171 (+$171), 130 closes, leg PnL +$240.61, 59/59 arb packages, 15 sessions.
+- PDF: `docs/reports/zinger-since-1000-reset-report.pdf`

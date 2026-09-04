@@ -301,7 +301,9 @@ export default function TunePage({ poly, onSave, onRefresh }) {
           </div>
           <div className="grid gap-1.5 sm:grid-cols-2">
             <NumRow label="Arb max USD" value={draft.arbMaxUsd} step="1" onChange={(v) => patch({ arbMaxUsd: v })} />
+            <NumRow label="Arb slice USD" value={draft.arbSliceUsd} step="1" onChange={(v) => patch({ arbSliceUsd: v })} />
             <NumRow label="Max packages" value={draft.maxArbPackages} step="1" onChange={(v) => patch({ maxArbPackages: v })} />
+            <NumRow label="Max per slug" value={draft.maxArbPerSlug} step="1" onChange={(v) => patch({ maxArbPerSlug: v })} />
             <NumRow label="Arb bankroll %" value={draft.arbBankrollFrac} step="0.01" onChange={(v) => patch({ arbBankrollFrac: v })} />
             <NumRow label="Min arb gap" value={draft.minArbGap} step="0.001" onChange={(v) => patch({ minArbGap: v })} />
             <NumRow label="Gap floor" value={draft.arbGapFloor} step="0.001" onChange={(v) => patch({ arbGapFloor: v })} />

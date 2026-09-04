@@ -1,0 +1,232 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{longtable}
+
+\definecolor{zingerblue}{HTML}{1E3A5F}
+\definecolor{zingeraccent}{HTML}{2563EB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=zingeraccent,
+  pdftitle={Zinger Since \$1000 Paper Reset --- Systems and Edge},
+  pdfauthor={Zinger Operator}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{zingerblue}{Zinger · Since \$1{,}000 paper reset}}
+\fancyhead[R]{\small\textcolor{gray}{4 September 2026}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\titleformat{\section}{\large\bfseries\color{zingerblue}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\bfseries\color{zingerblue}}{}{0em}{}
+
+\title{\textbf{Zinger Systems \& Edge Report}\\[0.35em]
+\large All trading since the \$1{,}000 paper clean-slate reset}
+\author{\texttt{zinger.kierkegaard.space} · Contabo VPS}
+\date{Generated 4 September 2026, $\sim$09:15 UTC}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+Scope is \textbf{not} a process restart. This report covers every paper close and
+arb package after the last \texttt{paper\_reset\_clean\_slate} that restored
+\textbf{\$1{,}000} starting cash
+(\texttt{2026-09-03T10:43:57Z}). Fifteen bot sessions followed. Bankroll is now
+$\sim$\textbf{\$1{,}171} (\textbf{+\$171} vs reset). Closed-leg PnL sums to
+\textbf{+\$240.61} across \textbf{130} closes (package bank 59/59 WR).
+\end{abstract}
+
+\section{Reset boundary}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lp{9.5cm}@{}}
+\toprule
+\textbf{Field} & \textbf{Value} \\
+\midrule
+Event & \texttt{paper\_reset\_clean\_slate} (archived prior book) \\
+When & 2026-09-03 10:43:57 UTC \\
+Starting cash & \$1{,}000 (\texttt{paperInitialDeposit}) \\
+Archived away & 68 trades · 34 packages (pre-reset history) \\
+Source of truth & \texttt{data/zinger.db} $\rightarrow$ \texttt{poly\_paper\_archive.json} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Headline since reset}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Equity now (paper bankroll) & \$1{,}171.34 \\
+PnL vs \$1{,}000 bankroll & +\$171.34 \\
+Closed legs & 130 \\
+Sum of closed-leg PnL & +\$240.61 \\
+Leg win rate & 50.0\% (65W / 65L) \\
+Expectancy / leg & +\$1.85 \\
+Payoff (avgW / $|$avgL$|$) & 1.48$\times$ \\
+Notional traded (cost basis) & \$2{,}277 \\
+ROI on cost & 10.6\% \\
+Best / worst leg & +\$60.37 / -\$49.33 \\
+Arb packages settled & 59 · \textbf{100\% WR} · package net +\$44.72 \\
+Sessions observed & 15 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textit{Note:} Bankroll +\$171 and summed leg PnL +\$240 differ because of open marks,
+fees/ledger timing, and how package merges book per-leg vs package net. Use
+\textbf{bankroll} for capital; use \textbf{package WR} for locked-arb quality;
+use \textbf{leg expectancy} for flow.
+
+\section{Edge by engine}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Engine} & \textbf{Legs} & \textbf{PnL} & \textbf{WR} & \textbf{Cost} \\
+\midrule
+Directional & 22 & +\$148.02 & 50.0\% & \$251 \\
+Arb (legs) & 108 & +\$92.59 & 50.0\% & \$2{,}026 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Directional delivered most of the dollar upside on far less notional (TP-heavy).
+Arb provided volume and a perfect package scoreboard (59/59) with smaller \$/package.
+
+\section{Edge by asset}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Asset} & \textbf{Legs} & \textbf{PnL} & \textbf{WR} \\
+\midrule
+ETH & 37 & +\$160.53 & 54.1\% \\
+BTC & 61 & +\$65.72 & 47.5\% \\
+XRP & 10 & +\$6.05 & 50.0\% \\
+SOL & 16 & +\$5.09 & 50.0\% \\
+DOGE & 6 & +\$3.22 & 50.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Arb packages by asset}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Asset} & \textbf{Packages} & \textbf{Pkg net} \\
+\midrule
+BTC & 28 & +\$25.77 \\
+ETH & 14 & +\$12.51 \\
+SOL & 9 & +\$2.65 \\
+XRP & 5 & +\$2.90 \\
+DOGE & 3 & +\$0.89 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Exit mix}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Exit reason} & \textbf{n} & \textbf{PnL} \\
+\midrule
+tp & 9 & +\$127.67 \\
+settle & 22 & +\$97.46 \\
+arb\_merge & 60 & +\$51.16 \\
+arb\_reverse\_bid & 28 & +\$11.30 \\
+sl & 10 & -\$38.93 \\
+rapid & 1 & -\$8.05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{By calendar day (UTC)}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Day} & \textbf{Closes} & \textbf{PnL} \\
+\midrule
+2026-09-03 & 30 & +\$56.86 \\
+2026-09-04 & 100 & +\$183.75 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Sessions since reset}
+\begin{longtable}{@{}llllr@{}}
+\toprule
+\textbf{Session} & \textbf{Last obs} & \textbf{Trades} & \textbf{Sess PnL} & \textbf{Equity} \\
+\midrule
+\endhead
+\texttt{mtlednp5} & 10:51 & 0 & \$0 & \$1000 \\
+\texttt{mtlenyij} & 10:53 & 0 & \$0 & \$1002 \\
+\texttt{mtletw2c} & 12:47 & 10 & +\$11.79 & \$1003 \\
+\texttt{mtliuacy} & 17:01 & 10 & +\$18.34 & \$1011 \\
+\texttt{mtlszr5i} & 22:00 & 2 & +\$17.23 & \$1020 \\
+\texttt{mtm2lzcn}--\texttt{mtm3no9f} & --- & 0 & --- & \$1020 \\
+\texttt{mtm3q5xp} & 23:55 & 8 & +\$9.50 & \$1023 \\
+\texttt{mtm6yau7} & 00:04 & 0 & \$0 & \$1024 \\
+\texttt{mtm7mukv} & 01:11 & 2 & +\$1.40 & \$1025 \\
+\texttt{mtm9euqw} & 01:24 & 9 & +\$10.93 & \$1032 \\
+\texttt{mtmnm5oh} & 08:20 & 29 & +\$123.19 & \$1138 \\
+\texttt{mtmor579} & 08:56 & 42 & +\$42.05 & \$1164 \\
+\texttt{mtmq08un} & 09:15 & 17 & +\$14.23 & \$1178 \\
+\bottomrule
+\end{longtable}
+
+\section{Systems notes in this window}
+\begin{itemize}[leftmargin=*,itemsep=0.35em]
+  \item Hybrid desk: CLOB arb + scalp directional; multi-asset BTC/ETH/SOL/XRP/DOGE; 5m/15m/4h.
+  \item Slice sizing added mid-window (\texttt{arbSliceUsd=\$15}, up to 6 packages/slug) to walk residual depth.
+  \item Reliability: overnight crash (\texttt{ERR\_HTTP\_HEADERS\_SENT} on RL signal); scan-lock hangs; false 4h \texttt{orphan\_paper} (fixed TF-aware window seconds).
+  \item Directional signals remain BTC/ETH-centric --- altcoins show up mainly via arb packages.
+\end{itemize}
+
+\section{Verdict}
+\begin{enumerate}[leftmargin=*,itemsep=0.35em]
+  \item Since the \$1{,}000 reset the book is \textbf{net positive} on both bankroll (+\$171) and closed-leg sum (+\$241).
+  \item \textbf{Directional TPs} dominate dollar edge; \textbf{arb packages} dominate reliability (100\% package WR).
+  \item ETH is the strongest asset; BTC provides most arb package count.
+  \item Next ops focus: keep scan loop alive (hung scans still kill fill rate) and keep slice multi-fill on when books are thick.
+\end{enumerate}
+
+\section{Artifacts}
+\begin{verbatim}
+PDF:  docs/reports/zinger-since-1000-reset-report.pdf
+TeX:  docs/reports/zinger-since-1000-reset-report.tex
+JSON: /tmp/zinger-since-1000-reset.json
+Reset: poly_paper_archive.json @ 2026-09-03T10:43:57Z
+\end{verbatim}
+
+\noindent
+Download:
+\begin{verbatim}
+scp david@109.205.181.119:\
+  /home/david/Zinger/docs/reports/zinger-since-1000-reset-report.pdf \
+  ~/Downloads/
+\end{verbatim}
+
+\end{document}
